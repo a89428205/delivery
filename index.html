@@ -2,27 +2,28 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓全能決策計算器</title>
+    <title>熊貓全能決策演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
         .container { background: white; padding: 20px; border-radius: 12px; max-width: 450px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .form-group { margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        input { width: 40%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
+        label { font-weight: bold; font-size: 13px; width: 60%; }
+        input { width: 35%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
         .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; font-size: 16px; display: none; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>熊貓全能決策器</h2>
+    <h2>📸 全能決策器 (已修正座標)</h2>
     <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])">
     
     <div style="margin-top:15px;">
-        <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🛣️ 里程(自動)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🎁 小費(手動)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>🔥 單單加碼(手動)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
+        <div class="form-group"><label>💰 偵測金額(元)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🛣️ 視覺里程(km)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🎁 手動小費(元)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>🔥 加碼金額(元)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>📈 基本倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
     <div id="resultBox" class="result-box"></div>
 </div>
@@ -42,17 +43,20 @@ async function processImage(file) {
             ctx.drawImage(img, 0, 0);
             const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
-            // 定位：黑色圓形(起始)與粉紅方形(終點)
-            let start = {x: 0, y: 0, c: 0}, end = {x: 0, y: 0, c: 0};
+            // 修正版定位：店家=黑色圓形, 客人=黑色方形
+            let shop = {x: 0, y: 0, c: 0}, cust = {x: 0, y: 0, c: 0};
             for (let i = 0; i < data.length; i += 4) {
-                if (data[i] < 40 && data[i+1] < 40 && data[i+2] < 40) { // 黑色圓形
-                    start.x += (i/4)%canvas.width; start.y += Math.floor((i/4)/canvas.width); start.c++;
-                } else if (data[i] > 200 && data[i+1] < 80 && data[i+2] > 150) { // 粉紅方形
-                    end.x += (i/4)%canvas.width; end.y += Math.floor((i/4)/canvas.width); end.c++;
+                // 偵測黑色圖標 (店家/客人通常都是黑色)
+                // 透過區域特徵區分：店家圓標通常較小，客人方標較大或位置不同
+                if (data[i] < 30 && data[i+1] < 30 && data[i+2] < 30) {
+                    let x = (i/4)%canvas.width, y = Math.floor((i/4)/canvas.width);
+                    // 根據你的截圖，左邊/上方區域通常是店家，右側/下方是客人
+                    if (x < canvas.width/2) { shop.x += x; shop.y += y; shop.c++; }
+                    else { cust.x += x; cust.y += y; cust.c++; }
                 }
             }
-            if (start.c > 0 && end.c > 0) {
-                const dist = Math.sqrt(Math.pow(start.x/start.c - end.x/end.c, 2) + Math.pow(start.y/start.c - end.y/end.c, 2));
+            if (shop.c > 0 && cust.c > 0) {
+                const dist = Math.sqrt(Math.pow(shop.x/shop.c - cust.x/cust.c, 2) + Math.pow(shop.y/shop.c - cust.y/cust.c, 2));
                 document.getElementById('totalDistance').value = (dist * 0.0035).toFixed(1);
             }
 
@@ -73,14 +77,14 @@ function calculate() {
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
     if (dist > 0 && inc > 0) {
-        // 核心公式：扣除廣告安全費(10)、小費、加碼後，再除倍率
+        // 核心邏輯：總金額扣除廣告安全費(10)、小費、加碼後，還原基本費率
         const rawPay = (inc - 10 - tips - bonus) / mult;
         const perKm = rawPay / dist;
         const box = document.getElementById('resultBox');
         box.style.display = 'block';
         box.style.background = perKm >= 10 ? "#d4edda" : "#f8d7da";
         box.innerHTML = `每公里基礎單價: <b>${perKm.toFixed(1)}</b> 元<br>
-                         <b>${perKm >= 10 ? "✅ 可以接單！" : "❌ 這單坑人！"}</b>`;
+                         <b>${perKm >= 10 ? "✅ 接單肥滋滋" : "❌ 這單坑人，別跑！"}</b>`;
     }
 }
 </script>
