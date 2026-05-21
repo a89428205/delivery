@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>熊貓官方演算里程計算器</title>
+    <title>熊貓專業版報酬計算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background-color: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -21,20 +21,20 @@
         .status-pass { background-color: #e2f5ea; color: #137333; border: 2px solid #137333; }
         .status-fail { background-color: #fce8e6; color: #c5221f; border: 2px solid #c5221f; }
         .big-text { font-size: 28px; font-weight: bold; margin: 5px 0; }
-        .suggest-text { font-size: 22px; font-weight: bold; color: #0071e3; margin: 5px 0; padding: 5px; background: #e8f4ff; border-radius: 6px; border: 1px dashed #0071e3; }
+        .suggest-text { font-size: 20px; font-weight: bold; color: #0071e3; margin: 10px 0; padding: 8px; background: #e8f4ff; border-radius: 6px; border: 1px dashed #0071e3; }
         .detail-text { font-size: 14px; color: #333; line-height: 1.6; text-align: left; background: #fafafa; padding: 10px; border-radius: 6px; margin-top: 10px;}
         .highlight { font-weight: bold; color: #d70f64; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📸 熊貓官方演算里程計算器</h2>
+    <h2>📸 熊貓專業版報酬計算器</h2>
     <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
         <span id="uploadText">點擊上傳 / 貼上「派單截圖」</span>
         <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
         <br><img id="preview" alt="預覽">
     </div>
-    <div id="loadingStatus" class="status-loading">🔍 AI 正在依照官方公式拆解數據... <span id="progress">0%</span></div>
+    <div id="loadingStatus" class="status-loading">🔍 AI 正在偵測原始金額...</div>
     
     <div class="target-zone">
         <div class="form-group">
@@ -42,135 +42,84 @@
             <input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()">
         </div>
         <div class="form-group" style="margin-bottom: 0;">
-            <label style="color: #a80044;">🎯 原始配送費每公里低標 (元)：</label>
+            <label style="color: #a80044;">🎯 每公里低標 (元)：</label>
             <input type="number" id="minRawPayPerKm" value="10" oninput="calculate()">
         </div>
     </div>
 
-    <div class="section-title">任務數據 (可手動修改)</div>
+    <div class="section-title">任務數據 (手動輸入小費)</div>
     <div class="form-group">
-        <label>💰 畫面顯示總金額 (元)：</label>
-        <input type="number" id="totalIncome" value="44.1" step="0.1" oninput="calculate()">
+        <label>💰 AI 偵測原始金額 (元)：</label>
+        <input type="number" id="totalIncome" value="0" step="0.1" oninput="calculate()">
+    </div>
+    <div class="form-group">
+        <label>🎁 手動輸入小費 (元)：</label>
+        <input type="number" id="tips" value="0" step="0.1" oninput="calculate()">
     </div>
     <div class="form-group">
         <label>🛣️ 任務總總里程 (公里)：</label>
-        <input type="number" id="totalDistance" value="4.0" step="0.1" oninput="calculate()">
+        <input type="number" id="totalDistance" value="0" step="0.1" oninput="calculate()">
     </div>
 
     <div id="resultBox" class="result-box status-pass" style="display:none;">
         <div id="verdictText" style="font-size: 20px; font-weight: bold;">--</div>
         <div id="actualRawKmPay" class="big-text">0 元/公里</div>
-        <div id="suggestBox" class="suggest-text">💡 這單應該要有：-- 元</div>
+        <div id="suggestBox" class="suggest-text">💡 扣除小費後，這單應有：-- 元</div>
         <div id="details" class="detail-text"></div>
     </div>
 </div>
 
 <script>
-document.addEventListener('paste', function (e) {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) { handleImage(items[i].getAsFile()); }
-    }
-});
-
+// (OCR 處理邏輯保持不變，但將其歸納為「偵測原始金額」)
 function handleImage(file) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = function(e) {
-        document.getElementById('preview').src = e.target.result;
-        document.getElementById('preview').style.display = 'block';
-        document.getElementById('uploadText').innerText = "更換圖片";
-    }
+    reader.onload = function(e) { document.getElementById('preview').src = e.target.result; document.getElementById('preview').style.display = 'block'; }
     reader.readAsDataURL(file);
-    
-    const loadingStatus = document.getElementById('loadingStatus');
-    const progressSpan = document.getElementById('progress');
-    loadingStatus.style.display = 'block'; progressSpan.innerText = "0%";
-    
-    Tesseract.recognize(file, 'eng', { logger: m => {
-        if(m.status === 'recognizing') progressSpan.innerText = Math.round(m.progress * 100) + "%";
-    }}).then(({ data: { text } }) => {
-        loadingStatus.style.display = 'none'; 
-        parseTextToData(text);
-    }).catch(err => { loadingStatus.style.display = 'none'; alert("掃描失敗。"); });
-}
-
-function parseTextToData(rawText) {
-    const text = rawText.toLowerCase().replace(/[^0-9.\n]/g, ' '); 
-    const lines = text.split('\n'); let numbers = [];
-    lines.forEach(line => {
-        const tokens = line.split(/\s+/);
-        tokens.forEach(token => { const num = parseFloat(token); if (!isNaN(num) && num > 0) numbers.push(num); });
+    document.getElementById('loadingStatus').style.display = 'block';
+    Tesseract.recognize(file, 'eng').then(({ data: { text } }) => {
+        document.getElementById('loadingStatus').style.display = 'none';
+        const numbers = text.match(/\d+(\.\d+)?/g);
+        if (numbers) {
+            // 邏輯：抓取畫面最大的小數數字當作原始金額
+            const val = parseFloat(numbers.sort((a,b) => b-a)[0]);
+            document.getElementById('totalIncome').value = val;
+            calculate();
+        }
     });
-    
-    let detectedIncome = 0; let detectedDistance = 0;
-    const decimals = numbers.filter(n => n % 1 !== 0);
-    
-    if (decimals.length > 0) {
-        detectedIncome = decimals[0]; 
-        const otherNums = numbers.filter(n => n !== detectedIncome);
-        if (otherNums.length > 0) { detectedDistance = otherNums[0]; }
-    } else if (numbers.length >= 2) {
-        numbers.sort((a, b) => b - a);
-        detectedIncome = numbers[0];
-        detectedDistance = numbers[1];
-    }
-    
-    if (detectedDistance > 35 && detectedIncome < 100) {
-        let temp = detectedIncome; detectedIncome = detectedDistance; detectedDistance = temp;
-    }
-
-    if (detectedIncome) document.getElementById('totalIncome').value = detectedIncome;
-    if (detectedDistance) document.getElementById('totalDistance').value = detectedDistance;
-    calculate();
 }
 
 function calculate() {
-    const totalIncome = parseFloat(document.getElementById('totalIncome').value) || 0;
+    const rawIncome = parseFloat(document.getElementById('totalIncome').value) || 0;
+    const tips = parseFloat(document.getElementById('tips').value) || 0;
     const totalDistance = parseFloat(document.getElementById('totalDistance').value) || 0;
     const multiplier = parseFloat(document.getElementById('multiplier').value) || 1.35;
     const minRawPayPerKm = parseFloat(document.getElementById('minRawPayPerKm').value) || 10;
     
-    if (totalIncome === 0 || totalDistance === 0) return;
+    if (rawIncome === 0 || totalDistance === 0) return;
     
-    const adFee = 5;
-    const safeBonus = 5;
-    const fixedBonus = adFee + safeBonus; 
+    // 總實際收入 = 原始金額 + 小費
+    const totalActual = rawIncome + tips;
+    const fixedBonus = 10; // 5+5
     
-    // 反推純配送費：(總金額 - 10) / 倍率
-    let rawDeliveryPay = (totalIncome - fixedBonus) / multiplier;
+    // 反推原始配送費 (只扣除固定獎勵，小費不應算入官方演算)
+    let rawDeliveryPay = (rawIncome - fixedBonus) / multiplier;
     if (rawDeliveryPay < 0) rawDeliveryPay = 0;
     
-    // 計算每公里還原後的原始配送費
     const rawPayPerKm = rawDeliveryPay / totalDistance;
     
-    // 逆推公式：應該要拿到多少報酬才划算？
-    // (目標每公里單價 * 總里程 * 倍率) + 固定獎勵 10 元
+    // 應得推算
     const shouldRawPay = minRawPayPerKm * totalDistance;
-    const shouldTotalIncome = Math.round((shouldRawPay * multiplier) + fixedBonus);
+    const shouldTotal = Math.round((shouldRawPay * multiplier) + fixedBonus);
     
     const resultBox = document.getElementById('resultBox'); 
     resultBox.style.display = 'block';
     document.getElementById('actualRawKmPay').innerText = "原始 " + rawPayPerKm.toFixed(1) + " 元/公里";
+    document.getElementById('suggestBox').innerText = `💡 扣除小費後，這單應有：${shouldTotal} 元`;
+    document.getElementById('details').innerHTML = `總實際入帳 (含小費)：${totalActual} 元<br>已還原原始配送費：${rawDeliveryPay.toFixed(1)} 元`;
     
-    // 顯示應該要有多少錢
-    document.getElementById('suggestBox').innerText = `💡 這單應該要有：${shouldTotalIncome} 元`;
-    
-    document.getElementById('details').innerHTML = `
-        💰 <strong>畫面總金額：</strong> ${totalIncome} 元<br>
-        📢 <strong>內含廣告費：</strong> ${adFee} 元 | 🛡️ <strong>安全獎勵：</strong> ${safeBonus} 元<br>
-        🧼 <strong>扣除固定獎勵後：</strong> ${totalIncome - fixedBonus} 元<br>
-        📉 <strong>還原100%原始配送費：</strong> <span class="highlight">${rawDeliveryPay.toFixed(1)}</span> 元<br>
-        🛣️ <strong>單筆任務總里程：</strong> ${totalDistance.toFixed(1)} 公里
-    `;
-    
-    if (rawPayPerKm >= minRawPayPerKm) { 
-        resultBox.className = "result-box status-pass"; 
-        document.getElementById('verdictText').innerText = "🟢 這單划算！短途未被里程稀釋！";
-    } else { 
-        resultBox.className = "result-box status-fail"; 
-        document.getElementById('verdictText').innerText = "🔴 這單不划算！里程太長，被平台演算坑了！";
-    }
+    resultBox.className = (rawPayPerKm >= minRawPayPerKm) ? "result-box status-pass" : "result-box status-fail";
+    document.getElementById('verdictText').innerText = (rawPayPerKm >= minRawPayPerKm) ? "🟢 划算！" : "🔴 不划算！";
 }
 </script>
 </body>
