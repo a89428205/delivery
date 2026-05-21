@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓智能決策演算器</title>
+    <title>熊貓全能決策演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -17,14 +17,14 @@
 </head>
 <body>
 <div class="container">
-    <h2>熊貓智能決策器</h2>
+    <h2>熊貓全能演算器</h2>
     <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])">
     
     <div style="margin-top:15px;">
-        <div class="form-group"><label>💰 金額：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🛣️ 里程：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🎁 小費：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🛣️ 里程(自動)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🎁 小費(手動)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>🔥 加碼(手動)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
 
@@ -46,41 +46,27 @@ async function processImage(file) {
         img.onload = async () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = img.width; canvas.height = img.height;
+            canvas.width = img.width;
+            canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 動態搜尋「螢光綠」區塊重心 (自動對焦金額)
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imgData.data;
-            let sumX = 0, sumY = 0, count = 0;
-            for (let i = 0; i < data.length; i += 4) {
-                // 鎖定螢光綠色 (r<100, g>150, b<100)
-                if (data[i+1] > 150 && data[i+1] > data[i] + 30 && data[i+1] > data[i+2] + 30) {
-                    sumX += (i/4) % canvas.width;
-                    sumY += Math.floor((i/4) / canvas.width);
-                    count++;
-                }
-            }
+            // 1. 暴力裁切：直接鎖定圖片底部 30% 區域 (金額所在區)
+            const roiCanvas = document.createElement('canvas');
+            const roiCtx = roiCanvas.getContext('2d');
+            const cropH = canvas.height * 0.3;
+            roiCanvas.width = canvas.width;
+            roiCanvas.height = cropH;
+            roiCtx.drawImage(canvas, 0, canvas.height * 0.7, canvas.width, cropH, 0, 0, canvas.width, cropH);
 
-            if (count > 0) {
-                const centerX = sumX / count;
-                const centerY = sumY / count;
-                // 以綠色區塊為中心裁切一個小矩形，專門識別金額
-                const roiCanvas = document.createElement('canvas');
-                const roiCtx = roiCanvas.getContext('2d');
-                const w = 400, h = 150;
-                roiCanvas.width = w; roiCanvas.height = h;
-                roiCtx.drawImage(canvas, centerX - w/2, centerY - h/2, w, h, 0, 0, w, h);
+            // 2. OCR 識別
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
+                tessedit_char_whitelist: '0123456789.', 
+            });
+            const matches = text.match(/\d+(\.\d{1,2})?/);
+            if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-                // 2. OCR 識別
-                const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
-                    tessedit_char_whitelist: '0123456789.', 
-                });
-                const matches = text.match(/\d+(\.\d{1,2})?/);
-                if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
-            }
-            
-            // 3. 里程定位 (圓形與方形圖標)
+            // 3. 里程定位
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
             let shop = {x: 0, y: 0, c: 0}, cust = {x: 0, y: 0, c: 0};
             for (let i = 0; i < data.length; i += 4) {
                 if (data[i] < 30 && data[i+1] < 30 && data[i+2] < 30) {
