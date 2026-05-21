@@ -21,6 +21,7 @@
         .status-pass { background-color: #e2f5ea; color: #137333; border: 2px solid #137333; }
         .status-fail { background-color: #fce8e6; color: #c5221f; border: 2px solid #c5221f; }
         .big-text { font-size: 28px; font-weight: bold; margin: 5px 0; }
+        .suggest-text { font-size: 22px; font-weight: bold; color: #0071e3; margin: 5px 0; padding: 5px; background: #e8f4ff; border-radius: 6px; border: 1px dashed #0071e3; }
         .detail-text { font-size: 14px; color: #333; line-height: 1.6; text-align: left; background: #fafafa; padding: 10px; border-radius: 6px; margin-top: 10px;}
         .highlight { font-weight: bold; color: #d70f64; }
     </style>
@@ -59,6 +60,7 @@
     <div id="resultBox" class="result-box status-pass" style="display:none;">
         <div id="verdictText" style="font-size: 20px; font-weight: bold;">--</div>
         <div id="actualRawKmPay" class="big-text">0 元/公里</div>
+        <div id="suggestBox" class="suggest-text">💡 這單應該要有：-- 元</div>
         <div id="details" class="detail-text"></div>
     </div>
 </div>
@@ -131,7 +133,6 @@ function calculate() {
     
     if (totalIncome === 0 || totalDistance === 0) return;
     
-    // 熊貓官方公式：固定內含 5元廣告費 + 5元安全獎勵 = 10元
     const adFee = 5;
     const safeBonus = 5;
     const fixedBonus = adFee + safeBonus; 
@@ -143,9 +144,17 @@ function calculate() {
     // 計算每公里還原後的原始配送費
     const rawPayPerKm = rawDeliveryPay / totalDistance;
     
+    // 逆推公式：應該要拿到多少報酬才划算？
+    // (目標每公里單價 * 總里程 * 倍率) + 固定獎勵 10 元
+    const shouldRawPay = minRawPayPerKm * totalDistance;
+    const shouldTotalIncome = Math.round((shouldRawPay * multiplier) + fixedBonus);
+    
     const resultBox = document.getElementById('resultBox'); 
     resultBox.style.display = 'block';
     document.getElementById('actualRawKmPay').innerText = "原始 " + rawPayPerKm.toFixed(1) + " 元/公里";
+    
+    // 顯示應該要有多少錢
+    document.getElementById('suggestBox').innerText = `💡 這單應該要有：${shouldTotalIncome} 元`;
     
     document.getElementById('details').innerHTML = `
         💰 <strong>畫面總金額：</strong> ${totalIncome} 元<br>
