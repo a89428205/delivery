@@ -2,95 +2,74 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓報酬演算器 (最終版)</title>
+    <title>熊貓官方報酬演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        body { font-family: -apple-system, sans-serif; background: #f5f5f7; padding: 20px; display: flex; justify-content: center; }
         .container { background: white; padding: 20px; border-radius: 12px; max-width: 450px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        canvas { max-width: 100%; border: 2px solid #d70f64; cursor: crosshair; display: block; margin: 10px 0; }
         .form-group { margin-bottom: 15px; }
-        label { font-weight: bold; color: #d70f64; }
-        input { width: 100%; padding: 10px; margin-top: 5px; border: 2px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
-        #resultBox { padding: 15px; margin-top: 20px; border-radius: 8px; text-align: center; display: none; font-size: 18px; }
+        label { font-weight: bold; color: #d70f64; display: block; margin-bottom: 5px; }
+        input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 18px; text-align: right; }
+        #resultBox { padding: 20px; margin-top: 20px; border-radius: 8px; text-align: center; display: none; font-size: 18px; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📸 報酬演算器 (最終整合版)</h2>
-    <input type="file" id="fileInput" accept="image/*">
-    <p style="font-size: 12px; color: #666;">步驟：1. 上傳截圖 2. 點擊紅點(店家)再點人像(顧客)測距 3. 金額會自動抓綠色字</p>
-    <canvas id="mapCanvas"></canvas>
+    <h2>📸 熊貓官方演算器</h2>
+    <input type="file" id="fileInput" accept="image/*" onchange="handleImage(this.files[0])">
     
     <div class="form-group"><label>💰 原始金額 (元):</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-    <div class="form-group"><label>🛣️ 自動計算里程 (公里):</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+    <div class="form-group"><label>🛣️ 里程 (公里):</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
     <div class="form-group"><label>📈 倍率:</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     
     <div id="resultBox"></div>
 </div>
 
 <script>
-let points = [];
-const canvas = document.getElementById('mapCanvas');
-const ctx = canvas.getContext('2d');
-
-document.getElementById('fileInput').onchange = function(e) {
-    const file = e.target.files[0];
+async function handleImage(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
         const img = new Image();
-        img.onload = () => {
+        img.src = e.target.result;
+        img.onload = async () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
-            detectGreenIncome(img); // 自動抓金額
+            
+            // 綠色濾鏡：只抓綠色金額 (解決金額亂跳問題)
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                if (!(data[i+1] > data[i] + 30 && data[i+1] > data[i+2] + 30)) {
+                    data[i] = data[i+1] = data[i+2] = 255; 
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+            
+            const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
+            const matches = text.match(/\d+(\.\d+)?/g);
+            if (matches) {
+                const income = parseFloat(matches[0]);
+                if (income > 0 && income < 500) document.getElementById('totalIncome').value = income;
+            }
+            calculate();
         };
-        img.src = e.target.result;
     };
     reader.readAsDataURL(file);
-};
-
-// 綠色文字金額辨識
-async function detectGreenIncome(img) {
-    const tempCanvas = document.createElement('canvas');
-    const tCtx = tempCanvas.getContext('2d');
-    tempCanvas.width = img.width; tempCanvas.height = img.height;
-    tCtx.drawImage(img, 0, 0);
-    const imageData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        if (!(data[i+1] > data[i] + 30 && data[i+1] > data[i+2] + 30)) {
-            data[i] = data[i+1] = data[i+2] = 255;
-        }
-    }
-    tCtx.putImageData(imageData, 0, 0);
-    const { data: { text } } = await Tesseract.recognize(tempCanvas, 'eng');
-    const matches = text.match(/\d+(\.\d+)?/g);
-    if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 }
-
-// 紅點到人像測距
-canvas.onclick = function(e) {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-    points.push({x, y});
-    ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(x, y, 20, 0, Math.PI*2); ctx.fill();
-    if (points.length === 2) {
-        const dx = points[0].x - points[1].x;
-        const dy = points[0].y - points[1].y;
-        const pixelDist = Math.sqrt(dx*dx + dy*dy);
-        // 系數 0.005 可根據你實際跑單誤差自行微調
-        document.getElementById('totalDistance').value = (pixelDist * 0.005).toFixed(1);
-        points = [];
-        calculate();
-    }
-};
 
 function calculate() {
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
     const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
+    
     if (dist > 0 && inc > 0) {
-        const perKm = (inc / mult) / dist; // 純淨報酬公式
+        // 核心算法：(總金額 - 10元固定獎勵) / 倍率 = 原始配送費
+        // 10元 = 廣告費 + 安全獎勵
+        const rawPay = (inc - 10) / mult;
+        const perKm = rawPay / dist;
+        
         const box = document.getElementById('resultBox');
         box.style.display = 'block';
         box.style.background = perKm >= 10 ? "#d4edda" : "#f8d7da";
