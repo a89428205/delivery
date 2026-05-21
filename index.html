@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓精準金額演算器</title>
+    <title>熊貓智能決策演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -10,21 +10,29 @@
         .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
+        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
+        .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
         .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>熊貓全能演算器</h2>
+    <h2>熊貓智能決策器</h2>
     <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])">
     
     <div style="margin-top:15px;">
-        <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🛣️ 里程(自動)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🎁 小費(手動)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>🔥 加碼(手動)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>💰 金額：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🛣️ 里程：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🎁 小費：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
+
+    <table class="calc-table">
+        <tr><td>廣告費 + 安全費</td><td>- 10 元</td></tr>
+        <tr><td>小費</td><td id="dispTips">- 0 元</td></tr>
+        <tr><td>任務加碼</td><td id="dispBonus">- 0 元</td></tr>
+    </table>
     
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
@@ -38,43 +46,53 @@ async function processImage(file) {
         img.onload = async () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = img.width;
-            canvas.height = img.height;
+            canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 【關鍵修正】：只取圖片下半部 (金額區域)，避開上方地圖雜訊
-            // 根據您的截圖，金額大約在 Y軸 65% 到 75% 之間，寬度 30% 到 70%
-            const cropX = canvas.width * 0.3;
-            const cropY = canvas.height * 0.65;
-            const cropW = canvas.width * 0.4;
-            const cropH = canvas.height * 0.1;
-            
-            const roiCanvas = document.createElement('canvas');
-            roiCanvas.width = cropW;
-            roiCanvas.height = cropH;
-            roiCtx = roiCanvas.getContext('2d');
-            roiCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-            // 對裁切區域做顏色過濾
-            const imgData = roiCtx.getImageData(0, 0, cropW, cropH);
-            const d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-                // 只有「綠色」保留，其餘變白
-                if (d[i+1] > 150 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) {
-                    d[i] = d[i+1] = d[i+2] = 0; // 黑
-                } else {
-                    d[i] = d[i+1] = d[i+2] = 255; // 白
+            // 1. 動態搜尋「螢光綠」區塊重心 (自動對焦金額)
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            let sumX = 0, sumY = 0, count = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                // 鎖定螢光綠色 (r<100, g>150, b<100)
+                if (data[i+1] > 150 && data[i+1] > data[i] + 30 && data[i+1] > data[i+2] + 30) {
+                    sumX += (i/4) % canvas.width;
+                    sumY += Math.floor((i/4) / canvas.width);
+                    count++;
                 }
             }
-            roiCtx.putImageData(imgData, 0, 0);
 
-            // OCR
-            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
-                tessedit_char_whitelist: '0123456789.', 
-            });
-            const matches = text.match(/\d+(\.\d{1,2})?/);
-            if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
+            if (count > 0) {
+                const centerX = sumX / count;
+                const centerY = sumY / count;
+                // 以綠色區塊為中心裁切一個小矩形，專門識別金額
+                const roiCanvas = document.createElement('canvas');
+                const roiCtx = roiCanvas.getContext('2d');
+                const w = 400, h = 150;
+                roiCanvas.width = w; roiCanvas.height = h;
+                roiCtx.drawImage(canvas, centerX - w/2, centerY - h/2, w, h, 0, 0, w, h);
+
+                // 2. OCR 識別
+                const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
+                    tessedit_char_whitelist: '0123456789.', 
+                });
+                const matches = text.match(/\d+(\.\d{1,2})?/);
+                if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
+            }
             
+            // 3. 里程定位 (圓形與方形圖標)
+            let shop = {x: 0, y: 0, c: 0}, cust = {x: 0, y: 0, c: 0};
+            for (let i = 0; i < data.length; i += 4) {
+                if (data[i] < 30 && data[i+1] < 30 && data[i+2] < 30) {
+                    let x = (i/4)%canvas.width, y = Math.floor((i/4)/canvas.width);
+                    if (x < canvas.width/2) { shop.x += x; shop.y += y; shop.c++; }
+                    else { cust.x += x; cust.y += y; cust.c++; }
+                }
+            }
+            if (shop.c > 0 && cust.c > 0) {
+                const dist = Math.sqrt(Math.pow(shop.x/shop.c - cust.x/cust.c, 2) + Math.pow(shop.y/shop.c - cust.y/cust.c, 2));
+                document.getElementById('totalDistance').value = (dist * 0.0035).toFixed(1);
+            }
             calculate();
         };
     };
@@ -82,12 +100,14 @@ async function processImage(file) {
 }
 
 function calculate() {
-    // (邏輯與之前相同，保持不變)
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
     const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
+    
+    document.getElementById('dispTips').innerText = `- ${tips} 元`;
+    document.getElementById('dispBonus').innerText = `- ${bonus} 元`;
     
     if (dist > 0 && inc > 0) {
         const rawPay = (inc - 10 - tips - bonus) / mult;
