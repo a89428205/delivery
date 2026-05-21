@@ -11,43 +11,23 @@
         h2 { text-align: center; color: #d70f64; margin-bottom: 15px; font-size: 20px; }
         .upload-zone { border: 2px dashed #d70f64; padding: 15px; text-align: center; border-radius: 8px; background-color: #fff0f5; cursor: pointer; margin-bottom: 15px; }
         #preview { max-width: 100%; max-height: 150px; margin-top: 10px; display: none; border-radius: 6px; }
-        .status-loading { color: #d70f64; font-weight: bold; display: none; text-align: center; margin: 10px 0; }
-        .section-title { font-size: 14px; color: #666; font-weight: bold; margin: 15px 0 5px 0; border-left: 3px solid #d70f64; padding-left: 6px;}
         .form-group { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
         label { font-weight: bold; font-size: 14px; width: 65%; }
         input[type="number"] { width: 30%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; text-align: right; font-size: 14px; }
-        .target-zone { background-color: #fff0f5; border: 2px solid #d70f64; padding: 12px; border-radius: 10px; margin-bottom: 15px; }
-        .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; }
-        .status-pass { background-color: #e2f5ea; color: #137333; border: 2px solid #137333; }
-        .status-fail { background-color: #fce8e6; color: #c5221f; border: 2px solid #c5221f; }
-        .big-text { font-size: 24px; font-weight: bold; margin: 5px 0; }
-        .suggest-text { font-size: 18px; font-weight: bold; color: #0071e3; margin: 10px 0; padding: 8px; background: #e8f4ff; border-radius: 6px; border: 1px dashed #0071e3; }
+        .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; display: none; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📸 熊貓專業報酬計算器</h2>
+    <h2>📸 報酬計算器 (手動優先版)</h2>
     <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
-        <span id="uploadText">點擊上傳 / 貼上「派單截圖」</span>
+        <span id="uploadText">點擊上傳截圖</span>
         <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
         <br><img id="preview" alt="預覽">
     </div>
-    <div id="loadingStatus" class="status-loading">🔍 AI 正在偵測金額...</div>
     
-    <div class="target-zone">
-        <div class="form-group">
-            <label>📈 本單基本倍率獎金：</label>
-            <input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()">
-        </div>
-        <div class="form-group" style="margin-bottom: 0;">
-            <label style="color: #a80044;">🎯 每公里低標 (元)：</label>
-            <input type="number" id="minRawPayPerKm" value="10" oninput="calculate()">
-        </div>
-    </div>
-
-    <div class="section-title">任務數據 (手動輸入小費)</div>
     <div class="form-group">
-        <label>💰 AI 偵測原始金額 (元)：</label>
+        <label>💰 原始金額 (元)：</label>
         <input type="number" id="totalIncome" value="0" step="0.1" oninput="calculate()">
     </div>
     <div class="form-group">
@@ -55,61 +35,57 @@
         <input type="number" id="tips" value="0" step="0.1" oninput="calculate()">
     </div>
     <div class="form-group">
-        <label>🛣️ 任務總總里程 (公里)：</label>
+        <label>🛣️ 總里程 (公里)：</label>
         <input type="number" id="totalDistance" value="0" step="0.1" oninput="calculate()">
     </div>
 
-    <div id="resultBox" class="result-box" style="display:none;">
+    <div id="resultBox" class="result-box">
         <div id="verdictText" style="font-size: 20px; font-weight: bold;">--</div>
-        <div id="actualRawKmPay" class="big-text">0 元/公里</div>
-        <div id="suggestBox" class="suggest-text">💡 建議報酬至少：-- 元</div>
+        <div id="actualResult" style="font-size: 24px; font-weight: bold; margin: 10px 0;">--</div>
     </div>
 </div>
 
 <script>
-function handleImage(file) {
+async function handleImage(file) {
     const reader = new FileReader();
-    reader.onload = function(e) { document.getElementById('preview').src = e.target.result; document.getElementById('preview').style.display = 'block'; }
+    reader.onload = (e) => { 
+        document.getElementById('preview').src = e.target.result; 
+        document.getElementById('preview').style.display = 'block'; 
+    };
     reader.readAsDataURL(file);
-    document.getElementById('loadingStatus').style.display = 'block';
-    
-    Tesseract.recognize(file, 'eng').then(({ data: { text } }) => {
-        document.getElementById('loadingStatus').style.display = 'none';
+
+    try {
+        const { data: { text } } = await Tesseract.recognize(file, 'eng');
         const matches = text.match(/\d+(\.\d+)?/g);
         if (matches) {
-            const val = parseFloat(matches.sort((a,b) => b-a)[0]);
-            if(val < 500) document.getElementById('totalIncome').value = val;
-            calculate();
+            // 只取 10~500 之間的數字，避免抓到雜訊
+            const candidates = matches.map(Number).filter(n => n > 10 && n < 500);
+            if (candidates.length > 0) {
+                document.getElementById('totalIncome').value = Math.max(...candidates);
+                calculate();
+            }
         }
-    });
+    } catch (err) {
+        console.error("偵測失敗，請手動輸入");
+    }
 }
 
 function calculate() {
     const rawIncome = parseFloat(document.getElementById('totalIncome').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
     const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
-    const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
-    const target = parseFloat(document.getElementById('minRawPayPerKm').value) || 10;
     
-    if(dist === 0) return;
-    
+    if (dist <= 0 || rawIncome <= 0) return;
+
     const fixedBonus = 10; 
-    const rawPay = (rawIncome - fixedBonus) / mult;
+    const rawPay = (rawIncome - fixedBonus) / 1.35;
     const payPerKm = rawPay / dist;
-    const shouldTotal = Math.round(((target * dist) * mult) + fixedBonus);
     
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
-    document.getElementById('actualRawKmPay').innerText = "原始 " + payPerKm.toFixed(1) + " 元/公里";
-    document.getElementById('suggestBox').innerText = `💡 建議報酬至少：${shouldTotal} 元`;
-    
-    if(payPerKm >= target) {
-        box.className = "result-box status-pass";
-        document.getElementById('verdictText').innerText = "🟢 這單划算！";
-    } else {
-        box.className = "result-box status-fail";
-        document.getElementById('verdictText').innerText = "🔴 這單不划算！";
-    }
+    document.getElementById('actualResult').innerText = "每公里原始: " + payPerKm.toFixed(1) + " 元";
+    box.style.backgroundColor = payPerKm >= 10 ? "#e2f5ea" : "#fce8e6";
+    document.getElementById('verdictText').innerText = payPerKm >= 10 ? "🟢 划算" : "🔴 不划算";
 }
 </script>
 </body>
