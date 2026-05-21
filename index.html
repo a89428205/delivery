@@ -7,50 +7,53 @@
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
         .container { background: white; padding: 20px; border-radius: 12px; max-width: 450px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .form-group { margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        label { font-weight: bold; font-size: 13px; width: 60%; }
-        input { width: 35%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
-        .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; font-size: 16px; display: none; }
+        .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        label { font-weight: bold; font-size: 13px; }
+        input { width: 35%; padding: 6px; text-align: right; }
+        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
+        .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
+        .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📸 全能決策器 (已修正座標)</h2>
+    <h2>熊貓全能演算器</h2>
     <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])">
     
     <div style="margin-top:15px;">
-        <div class="form-group"><label>💰 偵測金額(元)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🛣️ 視覺里程(km)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🎁 手動小費(元)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>🔥 加碼金額(元)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>📈 基本倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
+        <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🛣️ 里程(自動)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🎁 小費(手動)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>🔥 加碼(手動)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
-    <div id="resultBox" class="result-box"></div>
+
+    <table class="calc-table">
+        <tr><td>廣告費 + 安全費</td><td>- 10 元</td></tr>
+        <tr><td>小費</td><td id="dispTips">- 0 元</td></tr>
+        <tr><td>任務加碼</td><td id="dispBonus">- 0 元</td></tr>
+    </table>
+    
+    <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
 
-<canvas id="canvas" style="display:none;"></canvas>
-
 <script>
+// ( processImage 影像識別邏輯保持不變... )
 async function processImage(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
         const img = new Image();
         img.src = e.target.result;
         img.onload = async () => {
-            const canvas = document.getElementById('canvas');
+            const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
             const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-
-            // 修正版定位：店家=黑色圓形, 客人=黑色方形
             let shop = {x: 0, y: 0, c: 0}, cust = {x: 0, y: 0, c: 0};
             for (let i = 0; i < data.length; i += 4) {
-                // 偵測黑色圖標 (店家/客人通常都是黑色)
-                // 透過區域特徵區分：店家圓標通常較小，客人方標較大或位置不同
                 if (data[i] < 30 && data[i+1] < 30 && data[i+2] < 30) {
                     let x = (i/4)%canvas.width, y = Math.floor((i/4)/canvas.width);
-                    // 根據你的截圖，左邊/上方區域通常是店家，右側/下方是客人
                     if (x < canvas.width/2) { shop.x += x; shop.y += y; shop.c++; }
                     else { cust.x += x; cust.y += y; cust.c++; }
                 }
@@ -59,7 +62,6 @@ async function processImage(file) {
                 const dist = Math.sqrt(Math.pow(shop.x/shop.c - cust.x/cust.c, 2) + Math.pow(shop.y/shop.c - cust.y/cust.c, 2));
                 document.getElementById('totalDistance').value = (dist * 0.0035).toFixed(1);
             }
-
             const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
             const matches = text.match(/\d+(\.\d+)?/g);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
@@ -76,15 +78,18 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
+    // 更新表格顯示
+    document.getElementById('dispTips').innerText = `- ${tips} 元`;
+    document.getElementById('dispBonus').innerText = `- ${bonus} 元`;
+    
     if (dist > 0 && inc > 0) {
-        // 核心邏輯：總金額扣除廣告安全費(10)、小費、加碼後，還原基本費率
+        // 核心邏輯：總金額扣除廣告安全費(10)、小費、加碼
         const rawPay = (inc - 10 - tips - bonus) / mult;
         const perKm = rawPay / dist;
         const box = document.getElementById('resultBox');
         box.style.display = 'block';
         box.style.background = perKm >= 10 ? "#d4edda" : "#f8d7da";
-        box.innerHTML = `每公里基礎單價: <b>${perKm.toFixed(1)}</b> 元<br>
-                         <b>${perKm >= 10 ? "✅ 接單肥滋滋" : "❌ 這單坑人，別跑！"}</b>`;
+        box.innerHTML = `每公里基礎單價：${perKm.toFixed(1)} 元<br>${perKm >= 10 ? "✅ 接單肥滋滋" : "❌ 這單坑人，別跑！"}`;
     }
 }
 </script>
