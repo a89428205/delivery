@@ -2,101 +2,63 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>熊貓智能報酬演算器 (圖標校準版)</title>
+    <title>熊貓全能決策計算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; background-color: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
-        .container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 480px; width: 100%; }
-        h2 { text-align: center; color: #d70f64; margin-bottom: 15px; font-size: 20px; }
-        .upload-zone { border: 2px dashed #d70f64; padding: 15px; text-align: center; border-radius: 8px; background-color: #fff0f5; cursor: pointer; margin-bottom: 15px; }
-        #preview { max-width: 100%; max-height: 150px; margin-top: 10px; display: none; border-radius: 6px; }
-        .section-title { font-size: 14px; color: #666; font-weight: bold; margin: 15px 0 5px 0; border-left: 3px solid #d70f64; padding-left: 6px;}
-        .form-group { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
-        label { font-weight: bold; font-size: 14px; width: 65%; }
-        input[type="number"] { width: 30%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; text-align: right; font-size: 14px; }
-        .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; font-size: 18px; display: none;}
+        body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
+        .container { background: white; padding: 20px; border-radius: 12px; max-width: 450px; width: 100%; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        input { width: 40%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
+        .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; font-size: 16px; display: none; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📸 智能視覺報酬演算器</h2>
-    <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
-        <span id="uploadText">點擊上傳「派單截圖」</span>
-        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="processImage(this.files[0])">
-        <br><img id="preview" alt="預覽">
-    </div>
+    <h2>熊貓全能決策器</h2>
+    <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])">
     
-    <div class="section-title">任務數據 (自動偵測)</div>
-    <div class="form-group">
-        <label>💰 自動金額偵測 (元)：</label>
-        <input type="number" id="totalIncome" step="0.1" readonly style="background:#f9f9f9;">
+    <div style="margin-top:15px;">
+        <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🛣️ 里程(自動)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🎁 小費(手動)：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>🔥 單單加碼(手動)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
-    <div class="form-group">
-        <label>🛣️ 視覺預測里程 (公里)：</label>
-        <input type="number" id="totalDistance" step="0.1" readonly style="background:#f9f9f9;">
-    </div>
-    
-    <div class="section-title">算法參數 (手動)</div>
-    <div class="form-group">
-        <label>📈 本單基本倍率獎金：</label>
-        <input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()">
-    </div>
-
-    <div id="resultBox"></div>
+    <div id="resultBox" class="result-box"></div>
 </div>
 
 <canvas id="canvas" style="display:none;"></canvas>
 
 <script>
 async function processImage(file) {
-    if (!file) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
         const img = new Image();
         img.src = e.target.result;
         img.onload = async () => {
-            document.getElementById('preview').src = img.src;
-            document.getElementById('preview').style.display = 'block';
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
-            
-            const rawData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = rawData.data;
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
-            // 核心演算法：定位特定圖標
-            let startPos = {x: 0, y: 0, count: 0}, endPos = {x: 0, y: 0, count: 0};
+            // 定位：黑色圓形(起始)與粉紅方形(終點)
+            let start = {x: 0, y: 0, c: 0}, end = {x: 0, y: 0, c: 0};
             for (let i = 0; i < data.length; i += 4) {
-                const r = data[i], g = data[i+1], b = data[i+2];
-                // 偵測起始點：黑色圓形圖標 (r<35 && g<35 && b<35)
-                if (r < 35 && g < 35 && b < 35) {
-                    startPos.x += (i/4) % canvas.width; startPos.y += Math.floor((i/4) / canvas.width); startPos.count++;
-                }
-                // 偵測終點：黑色方形圖標 (鎖定高飽和度粉紅區域)
-                if (r > 220 && g < 70 && b > 160) { 
-                    endPos.x += (i/4) % canvas.width; endPos.y += Math.floor((i/4) / canvas.width); endPos.count++;
+                if (data[i] < 40 && data[i+1] < 40 && data[i+2] < 40) { // 黑色圓形
+                    start.x += (i/4)%canvas.width; start.y += Math.floor((i/4)/canvas.width); start.c++;
+                } else if (data[i] > 200 && data[i+1] < 80 && data[i+2] > 150) { // 粉紅方形
+                    end.x += (i/4)%canvas.width; end.y += Math.floor((i/4)/canvas.width); end.c++;
                 }
             }
-            
-            // 計算視覺里程 (黑色圓形到黑色方形)
-            if (startPos.count > 0 && endPos.count > 0) {
-                const dx = (startPos.x/startPos.count) - (endPos.x/endPos.count);
-                const dy = (startPos.y/startPos.count) - (endPos.y/endPos.count);
-                const pixelDist = Math.sqrt(dx*dx + dy*dy);
-                // 係數 0.0035 需要你在實際跑單時校準 (偏大調小，偏小調大)
-                document.getElementById('totalDistance').value = (pixelDist * 0.0035).toFixed(1);
-            } else {
-                document.getElementById('totalDistance').value = ""; // 抓不到點就留空
-                console.error("未能定位圖標，請確認圖片純淨");
+            if (start.c > 0 && end.c > 0) {
+                const dist = Math.sqrt(Math.pow(start.x/start.c - end.x/end.c, 2) + Math.pow(start.y/start.c - end.y/end.c, 2));
+                document.getElementById('totalDistance').value = (dist * 0.0035).toFixed(1);
             }
 
-            // 識別金額
             const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
             const matches = text.match(/\d+(\.\d+)?/g);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
-            
             calculate();
         };
     };
@@ -106,17 +68,19 @@ async function processImage(file) {
 function calculate() {
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
     const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
+    const tips = parseFloat(document.getElementById('tips').value) || 0;
+    const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    // 熊貓報酬公式 (扣除廣告費+安全費共 10 元)
     if (dist > 0 && inc > 0) {
-        const rawPay = (inc - 10) / mult;
+        // 核心公式：扣除廣告安全費(10)、小費、加碼後，再除倍率
+        const rawPay = (inc - 10 - tips - bonus) / mult;
         const perKm = rawPay / dist;
         const box = document.getElementById('resultBox');
         box.style.display = 'block';
         box.style.background = perKm >= 10 ? "#d4edda" : "#f8d7da";
-        box.innerHTML = `<h3>每公里原始: <b>${perKm.toFixed(1)}</b> 元</h3>
-                         ${perKm >= 10 ? "🟢 划算單" : "🔴 坑人單"}`;
+        box.innerHTML = `每公里基礎單價: <b>${perKm.toFixed(1)}</b> 元<br>
+                         <b>${perKm >= 10 ? "✅ 可以接單！" : "❌ 這單坑人！"}</b>`;
     }
 }
 </script>
