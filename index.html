@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓全能決策演算器</title>
+    <title>熊貓精準金額演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -10,8 +10,6 @@
         .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
-        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
-        .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
         .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; }
     </style>
 </head>
@@ -27,12 +25,6 @@
         <div class="form-group"><label>🔥 加碼(手動)：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
-
-    <table class="calc-table">
-        <tr><td>廣告費 + 安全費</td><td>- 10 元</td></tr>
-        <tr><td>小費</td><td id="dispTips">- 0 元</td></tr>
-        <tr><td>任務加碼</td><td id="dispBonus">- 0 元</td></tr>
-    </table>
     
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
@@ -46,32 +38,38 @@ async function processImage(file) {
         img.onload = async () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = img.width; canvas.height = img.height;
+            canvas.width = img.width;
+            canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 強制色彩濾鏡：只留下綠色金額數字
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i], g = data[i+1], b = data[i+2];
-                // 熊貓的綠色通常 r<150, g>150, b<150
-                if (g > 150 && g > r + 30 && g > b + 30) {
-                    data[i] = data[i+1] = data[i+2] = 0; // 變黑(OCR讀取目標)
+            // 【關鍵修正】：只取圖片下半部 (金額區域)，避開上方地圖雜訊
+            // 根據您的截圖，金額大約在 Y軸 65% 到 75% 之間，寬度 30% 到 70%
+            const cropX = canvas.width * 0.3;
+            const cropY = canvas.height * 0.65;
+            const cropW = canvas.width * 0.4;
+            const cropH = canvas.height * 0.1;
+            
+            const roiCanvas = document.createElement('canvas');
+            roiCanvas.width = cropW;
+            roiCanvas.height = cropH;
+            roiCtx = roiCanvas.getContext('2d');
+            roiCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+            // 對裁切區域做顏色過濾
+            const imgData = roiCtx.getImageData(0, 0, cropW, cropH);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+                // 只有「綠色」保留，其餘變白
+                if (d[i+1] > 150 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) {
+                    d[i] = d[i+1] = d[i+2] = 0; // 黑
                 } else {
-                    data[i] = data[i+1] = data[i+2] = 255; // 變白(背景)
+                    d[i] = d[i+1] = d[i+2] = 255; // 白
                 }
             }
-            ctx.putImageData(imageData, 0, 0);
+            roiCtx.putImageData(imgData, 0, 0);
 
-            // 2. 里程與圖標定位 (保持原邏輯)
-            const rawData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-            let shop = {x: 0, y: 0, c: 0}, cust = {x: 0, y: 0, c: 0};
-            for (let i = 0; i < rawData.length; i += 4) {
-                // 原圖的黑點在濾鏡後可能消失，需使用原圖邏輯，這裡簡化為直接 OCR
-            }
-            
-            // 3. OCR 識別
-            const { data: { text } } = await Tesseract.recognize(canvas, 'eng', {
+            // OCR
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
                 tessedit_char_whitelist: '0123456789.', 
             });
             const matches = text.match(/\d+(\.\d{1,2})?/);
@@ -84,14 +82,12 @@ async function processImage(file) {
 }
 
 function calculate() {
+    // (邏輯與之前相同，保持不變)
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
     const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
-    
-    document.getElementById('dispTips').innerText = `- ${tips} 元`;
-    document.getElementById('dispBonus').innerText = `- ${bonus} 元`;
     
     if (dist > 0 && inc > 0) {
         const rawPay = (inc - 10 - tips - bonus) / mult;
