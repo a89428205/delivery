@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>熊貓報酬演算器 (最終校準版)</title>
+    <title>熊貓智能報酬演算器 (圖標校準版)</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background-color: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -66,24 +66,24 @@ async function processImage(file) {
             const rawData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = rawData.data;
 
-            // 核心演算法：定位純淨圖標
-            let storePos = {x: 0, y: 0, count: 0}, userPos = {x: 0, y: 0, count: 0};
+            // 核心演算法：定位特定圖標
+            let startPos = {x: 0, y: 0, count: 0}, endPos = {x: 0, y: 0, count: 0};
             for (let i = 0; i < data.length; i += 4) {
                 const r = data[i], g = data[i+1], b = data[i+2];
-                // 偵測店家 (粉紅方形圖標)
-                if (r > 220 && g < 70 && b > 160) { 
-                    storePos.x += (i/4) % canvas.width; storePos.y += Math.floor((i/4) / canvas.width); storePos.count++;
-                }
-                // 偵測顧客 (黑色圓形圖標)
+                // 偵測起始點：黑色圓形圖標 (r<35 && g<35 && b<35)
                 if (r < 35 && g < 35 && b < 35) {
-                    userPos.x += (i/4) % canvas.width; userPos.y += Math.floor((i/4) / canvas.width); userPos.count++;
+                    startPos.x += (i/4) % canvas.width; startPos.y += Math.floor((i/4) / canvas.width); startPos.count++;
+                }
+                // 偵測終點：黑色方形圖標 (鎖定高飽和度粉紅區域)
+                if (r > 220 && g < 70 && b > 160) { 
+                    endPos.x += (i/4) % canvas.width; endPos.y += Math.floor((i/4) / canvas.width); endPos.count++;
                 }
             }
             
-            // 計算視覺里程 (紅點到黑點)
-            if (storePos.count > 0 && userPos.count > 0) {
-                const dx = (storePos.x/storePos.count) - (userPos.x/userPos.count);
-                const dy = (storePos.y/storePos.count) - (userPos.y/userPos.count);
+            // 計算視覺里程 (黑色圓形到黑色方形)
+            if (startPos.count > 0 && endPos.count > 0) {
+                const dx = (startPos.x/startPos.count) - (endPos.x/endPos.count);
+                const dy = (startPos.y/startPos.count) - (endPos.y/endPos.count);
                 const pixelDist = Math.sqrt(dx*dx + dy*dy);
                 // 係數 0.0035 需要你在實際跑單時校準 (偏大調小，偏小調大)
                 document.getElementById('totalDistance').value = (pixelDist * 0.0035).toFixed(1);
