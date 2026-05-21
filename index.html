@@ -20,21 +20,19 @@
         .result-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; }
         .status-pass { background-color: #e2f5ea; color: #137333; border: 2px solid #137333; }
         .status-fail { background-color: #fce8e6; color: #c5221f; border: 2px solid #c5221f; }
-        .big-text { font-size: 28px; font-weight: bold; margin: 5px 0; }
-        .suggest-text { font-size: 20px; font-weight: bold; color: #0071e3; margin: 10px 0; padding: 8px; background: #e8f4ff; border-radius: 6px; border: 1px dashed #0071e3; }
-        .detail-text { font-size: 14px; color: #333; line-height: 1.6; text-align: left; background: #fafafa; padding: 10px; border-radius: 6px; margin-top: 10px;}
-        .highlight { font-weight: bold; color: #d70f64; }
+        .big-text { font-size: 24px; font-weight: bold; margin: 5px 0; }
+        .suggest-text { font-size: 18px; font-weight: bold; color: #0071e3; margin: 10px 0; padding: 8px; background: #e8f4ff; border-radius: 6px; border: 1px dashed #0071e3; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📸 熊貓專業版報酬計算器</h2>
+    <h2>📸 熊貓專業報酬計算器</h2>
     <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
         <span id="uploadText">點擊上傳 / 貼上「派單截圖」</span>
         <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
         <br><img id="preview" alt="預覽">
     </div>
-    <div id="loadingStatus" class="status-loading">🔍 AI 正在偵測原始金額...</div>
+    <div id="loadingStatus" class="status-loading">🔍 AI 正在偵測金額...</div>
     
     <div class="target-zone">
         <div class="form-group">
@@ -61,29 +59,26 @@
         <input type="number" id="totalDistance" value="0" step="0.1" oninput="calculate()">
     </div>
 
-    <div id="resultBox" class="result-box status-pass" style="display:none;">
+    <div id="resultBox" class="result-box" style="display:none;">
         <div id="verdictText" style="font-size: 20px; font-weight: bold;">--</div>
         <div id="actualRawKmPay" class="big-text">0 元/公里</div>
-        <div id="suggestBox" class="suggest-text">💡 扣除小費後，這單應有：-- 元</div>
-        <div id="details" class="detail-text"></div>
+        <div id="suggestBox" class="suggest-text">💡 建議報酬至少：-- 元</div>
     </div>
 </div>
 
 <script>
-// (OCR 處理邏輯保持不變，但將其歸納為「偵測原始金額」)
 function handleImage(file) {
-    if (!file) return;
     const reader = new FileReader();
     reader.onload = function(e) { document.getElementById('preview').src = e.target.result; document.getElementById('preview').style.display = 'block'; }
     reader.readAsDataURL(file);
     document.getElementById('loadingStatus').style.display = 'block';
+    
     Tesseract.recognize(file, 'eng').then(({ data: { text } }) => {
         document.getElementById('loadingStatus').style.display = 'none';
-        const numbers = text.match(/\d+(\.\d+)?/g);
-        if (numbers) {
-            // 邏輯：抓取畫面最大的小數數字當作原始金額
-            const val = parseFloat(numbers.sort((a,b) => b-a)[0]);
-            document.getElementById('totalIncome').value = val;
+        const matches = text.match(/\d+(\.\d+)?/g);
+        if (matches) {
+            const val = parseFloat(matches.sort((a,b) => b-a)[0]);
+            if(val < 500) document.getElementById('totalIncome').value = val;
             calculate();
         }
     });
@@ -92,34 +87,29 @@ function handleImage(file) {
 function calculate() {
     const rawIncome = parseFloat(document.getElementById('totalIncome').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
-    const totalDistance = parseFloat(document.getElementById('totalDistance').value) || 0;
-    const multiplier = parseFloat(document.getElementById('multiplier').value) || 1.35;
-    const minRawPayPerKm = parseFloat(document.getElementById('minRawPayPerKm').value) || 10;
+    const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
+    const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
+    const target = parseFloat(document.getElementById('minRawPayPerKm').value) || 10;
     
-    if (rawIncome === 0 || totalDistance === 0) return;
+    if(dist === 0) return;
     
-    // 總實際收入 = 原始金額 + 小費
-    const totalActual = rawIncome + tips;
-    const fixedBonus = 10; // 5+5
+    const fixedBonus = 10; 
+    const rawPay = (rawIncome - fixedBonus) / mult;
+    const payPerKm = rawPay / dist;
+    const shouldTotal = Math.round(((target * dist) * mult) + fixedBonus);
     
-    // 反推原始配送費 (只扣除固定獎勵，小費不應算入官方演算)
-    let rawDeliveryPay = (rawIncome - fixedBonus) / multiplier;
-    if (rawDeliveryPay < 0) rawDeliveryPay = 0;
+    const box = document.getElementById('resultBox');
+    box.style.display = 'block';
+    document.getElementById('actualRawKmPay').innerText = "原始 " + payPerKm.toFixed(1) + " 元/公里";
+    document.getElementById('suggestBox').innerText = `💡 建議報酬至少：${shouldTotal} 元`;
     
-    const rawPayPerKm = rawDeliveryPay / totalDistance;
-    
-    // 應得推算
-    const shouldRawPay = minRawPayPerKm * totalDistance;
-    const shouldTotal = Math.round((shouldRawPay * multiplier) + fixedBonus);
-    
-    const resultBox = document.getElementById('resultBox'); 
-    resultBox.style.display = 'block';
-    document.getElementById('actualRawKmPay').innerText = "原始 " + rawPayPerKm.toFixed(1) + " 元/公里";
-    document.getElementById('suggestBox').innerText = `💡 扣除小費後，這單應有：${shouldTotal} 元`;
-    document.getElementById('details').innerHTML = `總實際入帳 (含小費)：${totalActual} 元<br>已還原原始配送費：${rawDeliveryPay.toFixed(1)} 元`;
-    
-    resultBox.className = (rawPayPerKm >= minRawPayPerKm) ? "result-box status-pass" : "result-box status-fail";
-    document.getElementById('verdictText').innerText = (rawPayPerKm >= minRawPayPerKm) ? "🟢 划算！" : "🔴 不划算！";
+    if(payPerKm >= target) {
+        box.className = "result-box status-pass";
+        document.getElementById('verdictText').innerText = "🟢 這單划算！";
+    } else {
+        box.className = "result-box status-fail";
+        document.getElementById('verdictText').innerText = "🔴 這單不划算！";
+    }
 }
 </script>
 </body>
