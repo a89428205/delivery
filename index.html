@@ -10,7 +10,6 @@
         .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
-        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
         .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
     </style>
 </head>
@@ -33,9 +32,61 @@
 </div>
 
 <script>
-// ... (Tesseract 辨識與三點定位邏輯保持原樣不變)
+async function processImage(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const img = new Image();
+        img.src = e.target.result;
+        img.onload = async () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width; canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+
+            // 1. 金額 OCR 識別
+            const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
+            const roiCanvas = document.createElement('canvas');
+            const roiCtx = roiCanvas.getContext('2d');
+            roiCanvas.width = canvas.width * 2; roiCanvas.height = (canvas.height * 0.15) * 2;
+            roiCtx.scale(2, 2);
+            roiCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.15, 0, 0, canvas.width, canvas.height * 0.15);
+            
+            const imgData = roiCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) d[i]=d[i+1]=d[i+2]=0;
+                else d[i]=d[i+1]=d[i+2]=255;
+            }
+            roiCtx.putImageData(imgData, 0, 0);
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
+            const matches = text.match(/\d+(\.\d{1,2})?/);
+            if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
+
+            // 2. 三點定位視覺偵測 (藍點/圓店家/方顧客)
+            const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
+            let blue={x:[],y:[]}, shop={x:[],y:[]}, cust={x:[],y:[]};
+            for (let i = 0; i < mapData.length; i += 4) {
+                const r=mapData[i], g=mapData[i+1], b=mapData[i+2];
+                // 藍點 (藍色主導)
+                if (b > 150 && b > r + 40) { blue.x.push((i/4)%canvas.width); blue.y.push(Math.floor((i/4)/canvas.width)); }
+                // 店家圓點 (低亮度深色)
+                else if (r < 50 && g < 50 && b < 50) { shop.x.push((i/4)%canvas.width); shop.y.push(Math.floor((i/4)/canvas.width)); }
+                // 客人方點 (高亮度亮色系)
+                else if (r > 200 && g > 100 && b > 100) { cust.x.push((i/4)%canvas.width); cust.y.push(Math.floor((i/4)/canvas.width)); }
+            }
+            const getAvg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b)/arr.length : null;
+            const bX=getAvg(blue.x), bY=getAvg(blue.y), sX=getAvg(shop.x), sY=getAvg(shop.y), cX=getAvg(cust.x), cY=getAvg(cust.y);
+            
+            if(bX && sX) document.getElementById('dist1').value = (Math.hypot(bX-sX, bY-sY) * 0.0035).toFixed(1);
+            if(sX && cX) document.getElementById('dist2').value = (Math.hypot(sX-cX, sY-cY) * 0.0035).toFixed(1);
+            calculate();
+        };
+    };
+    reader.readAsDataURL(file);
+}
 
 function calculate() {
+    // ... (計算邏輯保持不變)
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
     const d1 = parseFloat(document.getElementById('dist1').value) || 0;
     const d2 = parseFloat(document.getElementById('dist2').value) || 0;
@@ -43,26 +94,19 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
+    const laborPay = inc - tips - bonus;
     const totalDist = d1 + d2;
-    const laborPay = inc - tips - bonus; // 實領勞務金額
     const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
-    
-    // 兩項檢核並存
-    const isIllegal = laborPay < 45; // 專法檢核
-    const isProfitable = perKm >= 10; // 划算檢核
+    const isIllegal = laborPay < 45;
+    const isProfitable = perKm >= 10;
     
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
-    
-    // 設定顏色：如果違規就紅底，如果划算就綠底，都不符合則黃底
     box.style.background = isIllegal ? "#ffcccc" : (isProfitable ? "#d4edda" : "#fff3cd");
-    
     box.innerHTML = `
-        <div style="font-size: 14px;">
-            ${isIllegal ? "⚠️ <b style='color:red;'>低於法定底價 45 元</b>" : "✅ 符合法定底價"}<br>
-            真實每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>
-            ${isProfitable ? "✅ 划算單，衝！" : "❌ 不划算，再等等！"}
-        </div>
+        法規檢核：${isIllegal ? "⚠️ 低於法定45元" : "✅ 符合底價"}<br>
+        每公里真實單價：<b>${perKm.toFixed(1)}</b> 元/km<br>
+        ${isProfitable ? "✅ 划算單，衝！" : "❌ 不划算，再等等！"}
     `;
 }
 </script>
