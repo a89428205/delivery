@@ -10,7 +10,6 @@
         .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
-        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
         .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
     </style>
 </head>
@@ -21,11 +20,14 @@
     
     <div style="margin-top:15px;">
         <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🔍 偵測高度：</label><input type="number" id="cropY" value="0.60" step="0.05" oninput="calculate()"></div>
+        <div class="form-group"><label>🔍 偵測高度：</label><input type="number" id="cropY" value="0.55" step="0.05" oninput="calculate()"></div>
         <div class="form-group"><label>📏 近端係數：</label><input type="number" id="factor1" value="0.0006" step="0.0001" oninput="calculate()"></div>
         <div class="form-group"><label>📏 遠端係數：</label><input type="number" id="factor2" value="0.005" step="0.0001" oninput="calculate()"></div>
         <div class="form-group"><label>📍 藍點至店家 (km)：</label><input type="number" id="dist1" step="0.1" oninput="calculate()"></div>
         <div class="form-group"><label>🛣️ 店家至顧客 (km)：</label><input type="number" id="dist2" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🎁 小費：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
@@ -42,29 +44,19 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 保留您原本滿意的金額 OCR 邏輯
-            const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
+            // 1. 金額 OCR (0.55 偵測高度)
+            const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.55;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
-            const scale = 3;
-            const roiW = canvas.width;
             const roiH = canvas.height * 0.15;
-            roiCanvas.width = roiW * scale; roiCanvas.height = roiH * scale;
-            rCtx.scale(scale, scale);
-            rCtx.drawImage(canvas, 0, canvas.height * cropYPos, roiW, roiH, 0, 0, roiW, roiH);
+            roiCanvas.width = canvas.width; roiCanvas.height = roiH;
+            rCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, roiH, 0, 0, canvas.width, roiH);
             
-            let imgData = rCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
-            let d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-                let avg = (d[i] + d[i+1] + d[i+2]) / 3;
-                d[i] = d[i+1] = d[i+2] = (avg < 150) ? 0 : 255;
-            }
-            rCtx.putImageData(imgData, 0, 0);
             const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', { tessedit_char_whitelist: '0123456789.', tessedit_pageseg_mode: '7' });
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 2. 獨立的地圖定位邏輯
+            // 2. 定位邏輯
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             const f1 = parseFloat(document.getElementById('factor1').value);
             const f2 = parseFloat(document.getElementById('factor2').value);
@@ -86,10 +78,16 @@ async function processImage(file) {
 
 function calculate() {
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
-    const d1 = parseFloat(document.getElementById('dist1').value) || 0;
-    const d2 = parseFloat(document.getElementById('dist2').value) || 0;
-    const totalDist = d1 + d2;
-    const perKm = totalDist > 0 ? (inc / 1.35 / totalDist) : 0;
+    const dist1 = parseFloat(document.getElementById('dist1').value) || 0;
+    const dist2 = parseFloat(document.getElementById('dist2').value) || 0;
+    const tips = parseFloat(document.getElementById('tips').value) || 0;
+    const bonus = parseFloat(document.getElementById('bonus').value) || 0;
+    const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
+    
+    const totalDist = dist1 + dist2;
+    const laborPay = inc - tips - bonus;
+    const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
+    
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
     box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${(perKm >= 10 ? "✅ 划算單" : "❌ 坑人單")}`;
