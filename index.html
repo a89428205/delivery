@@ -12,7 +12,7 @@
         input { width: 35%; padding: 6px; text-align: right; }
         .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
         .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
-        .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
+        .result-highlight { background: #fff3cd; padding: 15px; text-align: center; font-weight: bold; margin-top: 15px; border-radius: 5px; line-height: 1.6; }
     </style>
 </head>
 <body>
@@ -49,7 +49,7 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 強力金額 OCR：放大 + 二值化 + 單行模式
+            // 1. 金額辨識：放大+二值化+單行辨識
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
@@ -76,7 +76,7 @@ async function processImage(file) {
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 2. 三點定位邏輯 (藍點-店家-顧客)
+            // 2. 地圖偵測 (藍點-店家-顧客)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             let blue={x:0,y:0,c:0}, shop={x:0,y:0,c:0}, cust={x:0,y:0,c:0};
             for (let i = 0; i < mapData.length; i += 4) {
