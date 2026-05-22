@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓全能決策演算器</title>
+    <title>熊貓全能決策演算器 (修正方形顧客點)</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -44,19 +44,18 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額 OCR (0.55 偵測高度)
+            // 1. 金額 OCR
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.55;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
             const roiH = canvas.height * 0.15;
             roiCanvas.width = canvas.width; roiCanvas.height = roiH;
             rCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, roiH, 0, 0, canvas.width, roiH);
-            
-            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', { tessedit_char_whitelist: '0123456789.', tessedit_pageseg_mode: '7' });
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', { tessedit_char_whitelist: '0123456789.' });
             const matches = text.match(/\d+(\.\d{1,2})?/);
-            if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
+            if (matches) document.getElementById('totalIncome').value = matches[0];
 
-            // 2. 定位邏輯
+            // 2. 定位邏輯 (針對方形紅色顧客點最佳化)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             const f1 = parseFloat(document.getElementById('factor1').value);
             const f2 = parseFloat(document.getElementById('factor2').value);
@@ -64,10 +63,14 @@ async function processImage(file) {
 
             for (let i = 0; i < mapData.length; i += 4) {
                 const r=mapData[i], g=mapData[i+1], b_val=mapData[i+2];
+                // 藍點
                 if (b_val > 150 && r < 100) { b.x += (i/4)%canvas.width; b.y += Math.floor((i/4)/canvas.width); b.c++; }
-                else if (r < 80 && g < 80 && b_val < 80) { s.x += (i/4)%canvas.width; s.y += Math.floor((i/4)/canvas.width); s.c++; }
-                else if (r > 200 && g < 50 && b_val < 50) { c.x += (i/4)%canvas.width; c.y += Math.floor((i/4)/canvas.width); c.c++; }
+                // 店家 (深灰色系圓點)
+                else if (r < 100 && g < 100 && b_val < 100 && (r+g+b_val) > 50) { s.x += (i/4)%canvas.width; s.y += Math.floor((i/4)/canvas.width); s.c++; }
+                // 顧客 (強紅色方形) - 放寬紅色判定，且只要是明顯的色塊都計入
+                else if (r > 160 && r > (g + b_val) * 1.2) { c.x += (i/4)%canvas.width; c.y += Math.floor((i/4)/canvas.width); c.c++; }
             }
+            
             if(b.c>10 && s.c>10) document.getElementById('dist1').value = (Math.hypot(b.x/b.c - s.x/s.c, b.y/b.c - s.y/s.c) * f1).toFixed(1);
             if(s.c>10 && c.c>10) document.getElementById('dist2').value = (Math.hypot(s.x/s.c - c.x/c.c, s.y/s.c - c.y/c.c) * f2).toFixed(1);
             calculate();
@@ -78,13 +81,14 @@ async function processImage(file) {
 
 function calculate() {
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
-    const dist1 = parseFloat(document.getElementById('dist1').value) || 0;
-    const dist2 = parseFloat(document.getElementById('dist2').value) || 0;
+    const d1 = parseFloat(document.getElementById('dist1').value) || 0;
+    const d2 = parseFloat(document.getElementById('dist2').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    const totalDist = dist1 + dist2;
+    const totalDist = d1 + d2;
+    document.getElementById('dispTotalDist').innerText = `${totalDist.toFixed(1)} km`;
     const laborPay = inc - tips - bonus;
     const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
     
