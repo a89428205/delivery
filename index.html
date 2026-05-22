@@ -11,6 +11,7 @@
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
         .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
+        .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
         .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
     </style>
 </head>
@@ -28,6 +29,10 @@
         <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
+
+    <table class="calc-table">
+        <tr><td>總行駛距離</td><td id="dispTotalDist">0.0 km</td></tr>
+    </table>
     
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
@@ -44,14 +49,13 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 強力金額 OCR：放大 + 二值化 + 單行辨識
+            // 1. 強力金額 OCR：放大 + 二值化 + 單行模式
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
             const scale = 3;
             const roiW = canvas.width;
             const roiH = canvas.height * 0.15;
-            
             roiCanvas.width = roiW * scale;
             roiCanvas.height = roiH * scale;
             rCtx.scale(scale, scale);
@@ -74,19 +78,15 @@ async function processImage(file) {
 
             // 2. 三點定位邏輯 (藍點-店家-顧客)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
-            let bArr=[], sArr=[], cArr=[];
+            let blue={x:0,y:0,c:0}, shop={x:0,y:0,c:0}, cust={x:0,y:0,c:0};
             for (let i = 0; i < mapData.length; i += 4) {
                 const r=mapData[i], g=mapData[i+1], b=mapData[i+2];
-                if (b > 120 && b > r + 30) bArr.push({x:(i/4)%canvas.width, y:Math.floor((i/4)/canvas.width)});
-                else if (r < 80 && g < 80 && b < 80) sArr.push({x:(i/4)%canvas.width, y:Math.floor((i/4)/canvas.width)});
-                else if (r > 150 && g < 100) cArr.push({x:(i/4)%canvas.width, y:Math.floor((i/4)/canvas.width)});
+                if (b > 150 && b > r + 40) { blue.x += (i/4)%canvas.width; blue.y += Math.floor((i/4)/canvas.width); blue.c++; }
+                else if (r < 50 && g < 50 && b < 50) { shop.x += (i/4)%canvas.width; shop.y += Math.floor((i/4)/canvas.width); shop.c++; }
+                else if (r > 200 && g < 100 && b > 100) { cust.x += (i/4)%canvas.width; cust.y += Math.floor((i/4)/canvas.width); cust.c++; }
             }
-            
-            const getAvg = arr => arr.length > 0 ? {x: arr.reduce((a,b)=>a+b.x,0)/arr.length, y: arr.reduce((a,b)=>a+b.y,0)/arr.length} : null;
-            const blue = getAvg(bArr), shop = getAvg(sArr), cust = getAvg(cArr);
-            
-            if(blue && shop) document.getElementById('dist1').value = (Math.hypot(blue.x-shop.x, blue.y-shop.y) * 0.0035).toFixed(1);
-            if(shop && cust) document.getElementById('dist2').value = (Math.hypot(shop.x-cust.x, shop.y-cust.y) * 0.0035).toFixed(1);
+            if(blue.c>0 && shop.c>0) document.getElementById('dist1').value = (Math.hypot(blue.x/blue.c - shop.x/shop.c, blue.y/blue.c - shop.y/shop.c) * 0.0035).toFixed(1);
+            if(shop.c>0 && cust.c>0) document.getElementById('dist2').value = (Math.hypot(shop.x/shop.c - cust.x/cust.c, shop.y/shop.c - cust.y/cust.c) * 0.0035).toFixed(1);
             calculate();
         };
     };
@@ -101,19 +101,16 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    const laborPay = inc - 10 - tips - bonus;
     const totalDist = d1 + d2;
+    document.getElementById('dispTotalDist').innerText = `${totalDist.toFixed(1)} km`;
+    
+    const laborPay = inc - tips - bonus;
     const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
     
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
-    
-    let resultText = "";
-    if (perKm >= 15) { box.style.background = "#28a745"; box.style.color = "white"; resultText = "🚀 超級肥單：直接搶！"; }
-    else if (perKm >= 10) { box.style.background = "#d4edda"; box.style.color = "#155724"; resultText = "✅ 划算單，可接！"; }
-    else { box.style.background = "#f8d7da"; box.style.color = "#721c24"; resultText = "❌ 坑人單，別跑！"; }
-    
-    box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${resultText}`;
+    box.style.background = (perKm >= 10) ? "#d4edda" : "#f8d7da";
+    box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${(perKm >= 10 ? "✅ 划算單，可接！" : "❌ 坑人單，別跑！")}`;
 }
 </script>
 </body>
