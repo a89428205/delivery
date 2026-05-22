@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓全能演算器</title>
+    <title>熊貓全能決策演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -10,7 +10,8 @@
         .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
-        .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
+        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
+        .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -25,7 +26,9 @@
         <div class="form-group"><label>🛣️ 店家至顧客 (km)：</label><input type="number" id="dist2" step="0.1" oninput="calculate()"></div>
         <div class="form-group"><label>🎁 小費：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
+        <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
+    
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
 
@@ -41,34 +44,37 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額自動辨識 (加入銳化增強)
+            // 1. 金額自動辨識
+            const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const roiCtx = roiCanvas.getContext('2d');
-            const cropYPos = parseFloat(document.getElementById('cropY').value);
-            roiCanvas.width = canvas.width; roiCanvas.height = canvas.height * 0.2;
-            roiCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.2, 0, 0, canvas.width, canvas.height * 0.2);
+            roiCanvas.width = canvas.width * 2; roiCanvas.height = (canvas.height * 0.15) * 2;
+            roiCtx.scale(2, 2);
+            roiCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.15, 0, 0, canvas.width, canvas.height * 0.15);
             
+            const imgData = roiCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) d[i]=d[i+1]=d[i+2]=0;
+                else d[i]=d[i+1]=d[i+2]=255;
+            }
+            roiCtx.putImageData(imgData, 0, 0);
             const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 2. 三點定位 (針對你的需求：藍點/圓店家/方顧客)
+            // 2. 三點距離偵測 (藍點/店家/顧客)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             let blue={x:[],y:[]}, shop={x:[],y:[]}, cust={x:[],y:[]};
             for (let i = 0; i < mapData.length; i += 4) {
                 const r=mapData[i], g=mapData[i+1], b=mapData[i+2];
-                // 藍點: 藍色主導且排除過亮區域
-                if (b > 120 && b > r + 30) blue.x.push((i/4)%canvas.width), blue.y.push(Math.floor((i/4)/canvas.width));
-                // 店家圓點: 低亮度 (黑色/深灰色)
-                else if (r < 80 && g < 80 && b < 80) shop.x.push((i/4)%canvas.width), shop.y.push(Math.floor((i/4)/canvas.width));
-                // 顧客方點: 亮度較高且偏暖色 (紅/橘/粉)
-                else if (r > 150 && g < 150) cust.x.push((i/4)%canvas.width), cust.y.push(Math.floor((i/4)/canvas.width));
+                if (b > 150 && b > r + 40) { blue.x.push((i/4)%canvas.width); blue.y.push(Math.floor((i/4)/canvas.width)); }
+                else if (r < 50 && g < 50 && b < 50) { shop.x.push((i/4)%canvas.width); shop.y.push(Math.floor((i/4)/canvas.width)); }
+                else if (r > 200 && g > 100 && b > 100) { cust.x.push((i/4)%canvas.width); cust.y.push(Math.floor((i/4)/canvas.width)); }
             }
-            
             const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b)/arr.length : null;
-            const bX=avg(blue.x), bY=avg(blue.y), sX=avg(shop.x), sY=getAvg(shop.y), cX=avg(cust.x), cY=getAvg(cust.y);
+            const bX=avg(blue.x), bY=avg(blue.y), sX=avg(shop.x), sY=avg(shop.y), cX=avg(cust.x), cY=getAvg(cust.y);
             
-            // 計算距離 (轉換係數 0.0035 請根據實際截圖誤差微調)
             if(bX && sX) document.getElementById('dist1').value = (Math.hypot(bX-sX, bY-sY) * 0.0035).toFixed(1);
             if(sX && cX) document.getElementById('dist2').value = (Math.hypot(sX-cX, sY-cY) * 0.0035).toFixed(1);
             calculate();
@@ -83,18 +89,16 @@ function calculate() {
     const d2 = parseFloat(document.getElementById('dist2').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
+    const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
     const laborPay = inc - tips - bonus;
     const totalDist = d1 + d2;
-    const perKm = totalDist > 0 ? (laborPay / totalDist) : 0;
+    const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
     
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
     box.style.background = (perKm >= 10) ? "#d4edda" : "#f8d7da";
-    box.innerHTML = `
-        每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>
-        ${perKm >= 10 ? "✅ 划算，衝！" : "❌ 不划算，再等等！"}
-    `;
+    box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${perKm >= 10 ? "✅ 划算單，衝！" : "❌ 不划算，再等等！"}`;
 }
 </script>
 </body>
