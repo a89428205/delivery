@@ -43,28 +43,36 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額自動辨識 (加入高對比預處理)
+            // 1. 強力金額 OCR：3倍放大 + 二值化 + 單行模式
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
-            roiCanvas.width = canvas.width; roiCanvas.height = canvas.height * 0.15;
-            rCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.15, 0, 0, roiCanvas.width, roiCanvas.height);
+            const scale = 3;
+            const roiW = canvas.width;
+            const roiH = canvas.height * 0.15;
             
-            // 強制轉黑白以優化辨識率
+            roiCanvas.width = roiW * scale;
+            roiCanvas.height = roiH * scale;
+            rCtx.scale(scale, scale);
+            rCtx.drawImage(canvas, 0, canvas.height * cropYPos, roiW, roiH, 0, 0, roiW, roiH);
+            
             let imgData = rCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
             let d = imgData.data;
             for (let i = 0; i < d.length; i += 4) {
-                let brightness = (d[i] + d[i+1] + d[i+2]) / 3;
-                let val = (brightness < 120) ? 0 : 255;
+                let avg = (d[i] + d[i+1] + d[i+2]) / 3;
+                let val = (avg < 150) ? 0 : 255;
                 d[i] = d[i+1] = d[i+2] = val;
             }
             rCtx.putImageData(imgData, 0, 0);
 
-            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
+                tessedit_char_whitelist: '0123456789.',
+                tessedit_pageseg_mode: '7' 
+            });
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 2. 地圖偵測 (使用像素灰度平均值)
+            // 2. 地圖偵測 (藍點-店家-顧客)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             let bArr=[], sArr=[], cArr=[];
             for (let i = 0; i < mapData.length; i += 4) {
@@ -73,7 +81,6 @@ async function processImage(file) {
                 else if (r < 80 && g < 80 && b < 80) sArr.push({x:(i/4)%canvas.width, y:Math.floor((i/4)/canvas.width)});
                 else if (r > 150 && g < 100) cArr.push({x:(i/4)%canvas.width, y:Math.floor((i/4)/canvas.width)});
             }
-            
             const getAvg = arr => arr.length > 0 ? {x: arr.reduce((a,b)=>a+b.x,0)/arr.length, y: arr.reduce((a,b)=>a+b.y,0)/arr.length} : null;
             const blue = getAvg(bArr), shop = getAvg(sArr), cust = getAvg(cArr);
             
@@ -100,9 +107,12 @@ function calculate() {
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
     
-    if (perKm >= 15) { box.style.background = "#28a745"; box.style.color = "white"; box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>🚀 超級肥單：直接搶！`; }
-    else if (perKm >= 10) { box.style.background = "#d4edda"; box.style.color = "#155724"; box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>✅ 划算單，可接！`; }
-    else { box.style.background = "#f8d7da"; box.style.color = "#721c24"; box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>❌ 坑人單，別跑！`; }
+    let resultText = "";
+    if (perKm >= 15) { box.style.background = "#28a745"; box.style.color = "white"; resultText = "🚀 超級肥單：直接搶！"; }
+    else if (perKm >= 10) { box.style.background = "#d4edda"; box.style.color = "#155724"; resultText = "✅ 划算單，可接！"; }
+    else { box.style.background = "#f8d7da"; box.style.color = "#721c24"; resultText = "❌ 坑人單，別跑！"; }
+    
+    box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${resultText}`;
 }
 </script>
 </body>
