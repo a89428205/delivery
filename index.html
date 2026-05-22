@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓全能決策演算器 (官方邏輯版)</title>
+    <title>熊貓全能決策演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -83,9 +83,10 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    // 官方演算法：總金額 = (配送費 * 倍率) + 固定獎勵(10元)
-    // 配送費估算值 = (總金額 - 固定獎勵 - 小費 - 加碼) / 倍率
-    const basePay = (inc - 10 - tips - bonus) / mult;
+    // 官方演算法修改：(總收入 + 小費 + 加碼 - 固定獎勵10元) / 倍率
+    // 這裡我們將「加碼」與「小費」視為額外收入，加進總報酬中計算
+    const totalEarnings = inc + tips + bonus;
+    const basePay = (totalEarnings - 10) / mult;
     const totalDist = d1 + d2;
     const efficiency = totalDist > 0 ? (basePay / totalDist) : 0;
     
