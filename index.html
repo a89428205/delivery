@@ -44,36 +44,29 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額自動辨識
+            // 1. 金額自動偵測
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const roiCtx = roiCanvas.getContext('2d');
             roiCanvas.width = canvas.width * 2; roiCanvas.height = (canvas.height * 0.15) * 2;
             roiCtx.scale(2, 2);
             roiCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.15, 0, 0, canvas.width, canvas.height * 0.15);
-            
-            const imgData = roiCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
-            const d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) d[i]=d[i+1]=d[i+2]=0;
-                else d[i]=d[i+1]=d[i+2]=255;
-            }
-            roiCtx.putImageData(imgData, 0, 0);
             const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 2. 三點距離偵測 (藍點/店家/顧客)
+            // 2. 三點定位邏輯
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             let blue={x:[],y:[]}, shop={x:[],y:[]}, cust={x:[],y:[]};
             for (let i = 0; i < mapData.length; i += 4) {
                 const r=mapData[i], g=mapData[i+1], b=mapData[i+2];
+                // 藍點、黑色店家、顧客方形 (顏色判斷需依實際截圖微調)
                 if (b > 150 && b > r + 40) { blue.x.push((i/4)%canvas.width); blue.y.push(Math.floor((i/4)/canvas.width)); }
                 else if (r < 50 && g < 50 && b < 50) { shop.x.push((i/4)%canvas.width); shop.y.push(Math.floor((i/4)/canvas.width)); }
                 else if (r > 200 && g > 100 && b > 100) { cust.x.push((i/4)%canvas.width); cust.y.push(Math.floor((i/4)/canvas.width)); }
             }
             const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b)/arr.length : null;
-            const bX=avg(blue.x), bY=avg(blue.y), sX=avg(shop.x), sY=avg(shop.y), cX=avg(cust.x), cY=getAvg(cust.y);
+            const bX=avg(blue.x), bY=avg(blue.y), sX=avg(shop.x), sY=avg(shop.y), cX=avg(cust.x), cY=avg(cust.y);
             
             if(bX && sX) document.getElementById('dist1').value = (Math.hypot(bX-sX, bY-sY) * 0.0035).toFixed(1);
             if(sX && cX) document.getElementById('dist2').value = (Math.hypot(sX-cX, sY-cY) * 0.0035).toFixed(1);
@@ -98,7 +91,7 @@ function calculate() {
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
     box.style.background = (perKm >= 10) ? "#d4edda" : "#f8d7da";
-    box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${perKm >= 10 ? "✅ 划算單，衝！" : "❌ 不划算，再等等！"}`;
+    box.innerHTML = `總距離：${totalDist.toFixed(1)} km<br>每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${perKm >= 10 ? "✅ 划算單，衝！" : "❌ 不划算，再等等！"}`;
 }
 </script>
 </body>
