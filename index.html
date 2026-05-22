@@ -12,12 +12,12 @@
         input { width: 35%; padding: 6px; text-align: right; }
         .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
         .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
-        .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; }
+        .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>熊貓全能演算器</h2>
+    <h2>熊貓全能決策演算器</h2>
     <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])">
     
     <div style="margin-top:15px;">
@@ -31,7 +31,6 @@
     </div>
 
     <table class="calc-table">
-        <tr><td>廣告費 + 安全費</td><td>- 10 元</td></tr>
         <tr><td>總行駛距離</td><td id="dispTotalDist">0.0 km</td></tr>
     </table>
     
@@ -50,22 +49,30 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額自動辨識 (保持裁切與綠色濾鏡)
+            // 1. 強力金額 OCR：放大 + 二值化 + 單行模式
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
-            const roiCtx = roiCanvas.getContext('2d');
-            roiCanvas.width = canvas.width * 2; roiCanvas.height = (canvas.height * 0.15) * 2;
-            roiCtx.scale(2, 2);
-            roiCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.15, 0, 0, canvas.width, canvas.height * 0.15);
+            const rCtx = roiCanvas.getContext('2d');
+            const scale = 3;
+            const roiW = canvas.width;
+            const roiH = canvas.height * 0.15;
+            roiCanvas.width = roiW * scale;
+            roiCanvas.height = roiH * scale;
+            rCtx.scale(scale, scale);
+            rCtx.drawImage(canvas, 0, canvas.height * cropYPos, roiW, roiH, 0, 0, roiW, roiH);
             
-            const imgData = roiCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
-            const d = imgData.data;
+            let imgData = rCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
+            let d = imgData.data;
             for (let i = 0; i < d.length; i += 4) {
-                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) d[i]=d[i+1]=d[i+2]=0;
-                else d[i]=d[i+1]=d[i+2]=255;
+                let avg = (d[i] + d[i+1] + d[i+2]) / 3;
+                d[i] = d[i+1] = d[i+2] = (avg < 150) ? 0 : 255;
             }
-            roiCtx.putImageData(imgData, 0, 0);
-            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
+            rCtx.putImageData(imgData, 0, 0);
+
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
+                tessedit_char_whitelist: '0123456789.',
+                tessedit_pageseg_mode: '7' 
+            });
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
@@ -98,13 +105,12 @@ function calculate() {
     document.getElementById('dispTotalDist').innerText = `${totalDist.toFixed(1)} km`;
     
     const laborPay = inc - tips - bonus;
-    const isIllegal = laborPay < 45;
     const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
     
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
-    box.style.background = isIllegal ? "#ffcccc" : (perKm >= 10 ? "#d4edda" : "#f8d7da");
-    box.innerHTML = `每公里單價：${perKm.toFixed(1)} 元<br>${isIllegal ? "⚠️ 低於45元法定底價" : (perKm >= 10 ? "✅ 划算單" : "❌ 坑人單")}`;
+    box.style.background = (perKm >= 10) ? "#d4edda" : "#f8d7da";
+    box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${(perKm >= 10 ? "✅ 划算單，可接！" : "❌ 坑人單，別跑！")}`;
 }
 </script>
 </body>
