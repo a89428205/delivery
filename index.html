@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>熊貓全能決策演算器</title>
+    <title>熊貓全能演算器</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         body { font-family: sans-serif; background: #f5f5f7; padding: 15px; display: flex; justify-content: center; }
@@ -10,8 +10,6 @@
         .form-group { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         label { font-weight: bold; font-size: 13px; }
         input { width: 35%; padding: 6px; text-align: right; }
-        .calc-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 13px; }
-        .calc-table td { padding: 5px; border-bottom: 1px solid #eee; }
         .result-highlight { background: #fff3cd; padding: 10px; text-align: center; font-weight: bold; margin-top: 10px; border-radius: 5px; line-height: 1.6; }
     </style>
 </head>
@@ -29,10 +27,6 @@
         <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
-
-    <table class="calc-table">
-        <tr><td>總行駛距離</td><td id="dispTotalDist">0.0 km</td></tr>
-    </table>
     
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
 </div>
@@ -49,7 +43,7 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額自動辨識
+            // 1. 金額自動辨識 (已調鬆過濾條件)
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const roiCtx = roiCanvas.getContext('2d');
@@ -60,25 +54,34 @@ async function processImage(file) {
             const imgData = roiCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
             const d = imgData.data;
             for (let i = 0; i < d.length; i += 4) {
-                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) d[i]=d[i+1]=d[i+2]=0;
+                // 放寬綠色篩選標準，確保綠色金額能被讀取
+                if (d[i+1] > 100 && d[i+1] > d[i] + 20 && d[i+1] > d[i+2] + 20) d[i]=d[i+1]=d[i+2]=0;
                 else d[i]=d[i+1]=d[i+2]=255;
             }
             roiCtx.putImageData(imgData, 0, 0);
+            
             const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 2. 三點定位邏輯 (藍點-店家-顧客)
+            // 2. 三點定位邏輯 (藍點/店家/顧客)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
-            let blue={x:0,y:0,c:0}, shop={x:0,y:0,c:0}, cust={x:0,y:0,c:0};
+            let blue={x:[],y:[]}, shop={x:[],y:[]}, cust={x:[],y:[]};
             for (let i = 0; i < mapData.length; i += 4) {
                 const r=mapData[i], g=mapData[i+1], b=mapData[i+2];
-                if (b > 150 && b > r + 40) { blue.x += (i/4)%canvas.width; blue.y += Math.floor((i/4)/canvas.width); blue.c++; }
-                else if (r < 50 && g < 50 && b < 50) { shop.x += (i/4)%canvas.width; shop.y += Math.floor((i/4)/canvas.width); shop.c++; }
-                else if (r > 200 && g < 100 && b > 100) { cust.x += (i/4)%canvas.width; cust.y += Math.floor((i/4)/canvas.width); cust.c++; }
+                // 藍點
+                if (b > 120 && b > r + 30) { blue.x.push((i/4)%canvas.width); blue.y.push(Math.floor((i/4)/canvas.width)); }
+                // 店家圓點
+                else if (r < 80 && g < 80 && b < 80) { shop.x.push((i/4)%canvas.width); shop.y.push(Math.floor((i/4)/canvas.width)); }
+                // 顧客方點
+                else if (r > 150 && g < 150) { cust.x.push((i/4)%canvas.width); cust.y.push(Math.floor((i/4)/canvas.width)); }
             }
-            if(blue.c>0 && shop.c>0) document.getElementById('dist1').value = (Math.hypot(blue.x/blue.c - shop.x/shop.c, blue.y/blue.c - shop.y/shop.c) * 0.0035).toFixed(1);
-            if(shop.c>0 && cust.c>0) document.getElementById('dist2').value = (Math.hypot(shop.x/shop.c - cust.x/cust.c, shop.y/shop.c - cust.y/cust.c) * 0.0035).toFixed(1);
+            
+            const avg = arr => arr.length > 0 ? arr.reduce((a,b)=>a+b)/arr.length : null;
+            const bX=avg(blue.x), bY=avg(blue.y), sX=avg(shop.x), sY=avg(shop.y), cX=avg(cust.x), cY=avg(cust.y);
+            
+            if(bX && sX) document.getElementById('dist1').value = (Math.hypot(bX-sX, bY-sY) * 0.0035).toFixed(1);
+            if(sX && cX) document.getElementById('dist2').value = (Math.hypot(sX-cX, sY-cY) * 0.0035).toFixed(1);
             calculate();
         };
     };
@@ -93,27 +96,17 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
+    const laborPay = inc - 10 - tips - bonus;
     const totalDist = d1 + d2;
-    document.getElementById('dispTotalDist').innerText = `${totalDist.toFixed(1)} km`;
-    
-    const laborPay = inc - 10 - tips - bonus; 
     const perKm = totalDist > 0 ? (laborPay / mult / totalDist) : 0;
     
     const box = document.getElementById('resultBox');
     box.style.display = 'block';
     
-    // 獲利效率分級提示
     let resultText = "";
-    if (perKm >= 15) {
-        box.style.background = "#28a745"; box.style.color = "white";
-        resultText = "🚀 超級肥單：直接搶！";
-    } else if (perKm >= 10) {
-        box.style.background = "#d4edda"; box.style.color = "#155724";
-        resultText = "✅ 划算單，可接！";
-    } else {
-        box.style.background = "#f8d7da"; box.style.color = "#721c24";
-        resultText = "❌ 坑人單，別跑！";
-    }
+    if (perKm >= 15) { box.style.background = "#28a745"; box.style.color = "white"; resultText = "🚀 超級肥單：直接搶！"; }
+    else if (perKm >= 10) { box.style.background = "#d4edda"; box.style.color = "#155724"; resultText = "✅ 划算單，可接！"; }
+    else { box.style.background = "#f8d7da"; box.style.color = "#721c24"; resultText = "❌ 坑人單，別跑！"; }
     
     box.innerHTML = `每公里單價：<b>${perKm.toFixed(1)}</b> 元/km<br>${resultText}`;
 }
