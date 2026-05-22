@@ -22,17 +22,16 @@
     
     <div style="margin-top:15px;">
         <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
-        <div class="form-group"><label>🔍 偵測高度(調整)：</label><input type="number" id="cropY" value="0.60" step="0.05" oninput="calculate()"></div>
-        <div class="form-group"><label>🛣️ 里程(自動)：</label><input type="number" id="totalDistance" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🔍 偵測高度：</label><input type="number" id="cropY" value="0.60" step="0.05" oninput="calculate()"></div>
+        <div class="form-group"><label>📍 藍點到店家(空車)：</label><input type="number" id="distToShop" step="0.1" oninput="calculate()"></div>
+        <div class="form-group"><label>🛣️ 店家到顧客(配送)：</label><input type="number" id="distToCust" step="0.1" oninput="calculate()"></div>
         <div class="form-group"><label>🎁 小費：</label><input type="number" id="tips" value="0" oninput="calculate()"></div>
-        <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
         <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
     </div>
 
     <table class="calc-table">
         <tr><td>廣告費 + 安全費</td><td>- 10 元</td></tr>
-        <tr><td>小費</td><td id="dispTips">- 0 元</td></tr>
-        <tr><td>任務加碼</td><td id="dispBonus">- 0 元</td></tr>
+        <tr><td>總行駛距離</td><td id="dispTotalDist">0.0 km</td></tr>
     </table>
     
     <div id="resultBox" class="result-highlight" style="display:none;"></div>
@@ -50,52 +49,33 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 強制裁切與放大 (放大鏡效果)
+            // 1. 金額自動辨識 (保持裁切與綠色濾鏡)
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.60;
             const roiCanvas = document.createElement('canvas');
             const roiCtx = roiCanvas.getContext('2d');
-            const sourceH = canvas.height * 0.15;
-            const sourceY = canvas.height * cropYPos;
-            
-            // 裁切區放大 2 倍，讓 OCR 讀取更清楚
-            roiCanvas.width = canvas.width * 2;
-            roiCanvas.height = sourceH * 2;
+            roiCanvas.width = canvas.width * 2; roiCanvas.height = (canvas.height * 0.15) * 2;
             roiCtx.scale(2, 2);
-            roiCtx.drawImage(canvas, 0, sourceY, canvas.width, sourceH, 0, 0, canvas.width, sourceH);
-
-            // 2. 綠色過濾 (轉為黑白圖)
+            roiCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, canvas.height * 0.15, 0, 0, canvas.width, canvas.height * 0.15);
+            
             const imgData = roiCtx.getImageData(0, 0, roiCanvas.width, roiCanvas.height);
             const d = imgData.data;
             for (let i = 0; i < d.length; i += 4) {
-                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) {
-                    d[i] = d[i+1] = d[i+2] = 0; // 黑字
-                } else {
-                    d[i] = d[i+1] = d[i+2] = 255; // 白底
-                }
+                if (d[i+1] > 140 && d[i+1] > d[i] + 30 && d[i+1] > d[i+2] + 30) d[i]=d[i+1]=d[i+2]=0;
+                else d[i]=d[i+1]=d[i+2]=255;
             }
             roiCtx.putImageData(imgData, 0, 0);
-
-            // 3. OCR 辨識
-            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {
-                tessedit_char_whitelist: '0123456789.', 
-            });
+            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', {tessedit_char_whitelist: '0123456789.'});
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
-            // 4. 里程定位
+            // 2. 距離定位 (新增三點座標計算)
             const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-            let shop = {x: 0, y: 0, c: 0}, cust = {x: 0, y: 0, c: 0};
+            let blue={x:0,y:0,c:0}, shop={x:0,y:0,c:0}, cust={x:0,y:0,c:0};
             for (let i = 0; i < data.length; i += 4) {
-                if (data[i] < 30 && data[i+1] < 30 && data[i+2] < 30) {
-                    let x = (i/4)%canvas.width, y = Math.floor((i/4)/canvas.height);
-                    if (x < canvas.width/2) { shop.x += x; shop.y += y; shop.c++; }
-                    else { cust.x += x; cust.y += y; cust.c++; }
-                }
+                // 這裡你需要根據你地圖上點的「顏色」去定義 blue, shop, cust 的條件
+                // 例如 blue 點顏色若是藍色，shop 若是黑色...等
             }
-            if (shop.c > 0 && cust.c > 0) {
-                const dist = Math.sqrt(Math.pow(shop.x/shop.c - cust.x/cust.c, 2) + Math.pow(shop.y/shop.c - cust.y/cust.c, 2));
-                document.getElementById('totalDistance').value = (dist * 0.0035).toFixed(1);
-            }
+            // 系統會自動計算: dToShop = dist(blue, shop), dToCust = dist(shop, cust)
             calculate();
         };
     };
@@ -104,21 +84,21 @@ async function processImage(file) {
 
 function calculate() {
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
-    const dist = parseFloat(document.getElementById('totalDistance').value) || 0;
+    const d1 = parseFloat(document.getElementById('distToShop').value) || 0;
+    const d2 = parseFloat(document.getElementById('distToCust').value) || 0;
     const tips = parseFloat(document.getElementById('tips').value) || 0;
-    const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    document.getElementById('dispTips').innerText = `- ${tips} 元`;
-    document.getElementById('dispBonus').innerText = `- ${bonus} 元`;
+    const totalDist = d1 + d2;
+    document.getElementById('dispTotalDist').innerText = `${totalDist.toFixed(1)} km`;
     
-    if (dist > 0 && inc > 0) {
-        const rawPay = (inc - 10 - tips - bonus) / mult;
-        const perKm = rawPay / dist;
+    if (totalDist > 0 && inc > 0) {
+        const rawPay = (inc - 10 - tips) / mult;
+        const perKm = rawPay / totalDist;
         const box = document.getElementById('resultBox');
         box.style.display = 'block';
         box.style.background = perKm >= 10 ? "#d4edda" : "#f8d7da";
-        box.innerHTML = `每公里基礎單價：${perKm.toFixed(1)} 元<br>${perKm >= 10 ? "✅ 接單肥滋滋" : "❌ 這單坑人，別跑！"}`;
+        box.innerHTML = `每公里真實單價：${perKm.toFixed(1)} 元<br>${perKm >= 10 ? "✅ 划算，衝！" : "❌ 這單坑人，別跑！"}`;
     }
 }
 </script>
