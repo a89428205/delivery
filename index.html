@@ -7,32 +7,29 @@
     <style>
         body { 
             font-family: 'Segoe UI', sans-serif; 
-            background: linear-gradient(135deg, #f7d7d7, #fde4e4, #ffffff); 
-            min-height: 100vh;
-            display: flex; justify-content: center; align-items: center; margin: 0;
+            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%); 
+            min-height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; 
         }
         .container { 
-            background: rgba(255, 255, 255, 0.9); padding: 25px; border-radius: 20px; 
-            max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-            border: 2px solid #ffbcbc;
+            background: rgba(255, 255, 255, 0.95); padding: 25px; border-radius: 25px; 
+            max-width: 400px; width: 90%; box-shadow: 0 15px 35px rgba(0,0,0,0.2);
         }
-        h2 { text-align: center; color: #d32f2f; margin-bottom: 20px; }
-        .form-group { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
-        label { font-weight: bold; font-size: 14px; color: #555; }
-        input { width: 40%; padding: 8px; border: 1px solid #ddd; border-radius: 8px; text-align: right; }
-        .result-highlight { 
-            background: #fff3cd; padding: 15px; text-align: center; font-weight: bold; 
-            margin-top: 20px; border-radius: 15px; border: 1px solid #ffeeba;
-            font-size: 16px; color: #856404;
+        h2 { text-align: center; color: #d32f2f; margin-bottom: 20px; cursor: pointer; }
+        .form-group { margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        label { font-weight: bold; color: #444; }
+        input { width: 45%; padding: 10px; border: 1px solid #ddd; border-radius: 10px; text-align: right; background: #fff; }
+        #resultBox { 
+            background: #fff3cd; padding: 20px; text-align: center; font-weight: bold; 
+            margin-top: 20px; border-radius: 20px; border: 2px dashed #ffc107; font-size: 18px; color: #856404;
         }
-        /* 隱藏進階參數 */
-        .hidden-params { display: none; }
+        .hidden-params { display: none; background: #f9f9f9; padding: 10px; border-radius: 10px; margin-top: 10px; }
     </style>
 </head>
 <body>
+
 <div class="container">
-    <h2>🐼 熊貓全能決策演算器</h2>
-    <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])" style="width:100%; margin-bottom:15px;">
+    <h2 onclick="document.getElementById('adv').style.display='block'">🐼 熊貓決策演算器</h2>
+    <input type="file" id="fileInput" accept="image/*" onchange="processImage(this.files[0])" style="width:100%; margin-bottom:20px;">
     
     <div class="form-group"><label>💰 總金額：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
     <div class="form-group"><label>📍 藍點至店家 (km)：</label><input type="number" id="dist1" step="0.1" oninput="calculate()"></div>
@@ -41,44 +38,32 @@
     <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
     <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
 
-    <!-- 隱藏參數 (使用 image_5.png 的固定參數) -->
-    <div class="hidden-params">
-        <input type="number" id="cropY" value="0.53">
-        <input type="number" id="factor1" value="0.0022">
-        <input type="number" id="factor2" value="0.0023">
-        <input type="number" id="offset2" value="0.4">
+    <!-- 隱藏的校準區域 -->
+    <div id="adv" class="hidden-params">
+        <div class="form-group"><label>偵測高度：</label><input type="number" id="cropY" value="0.53"></div>
+        <div class="form-group"><label>藍-店係數：</label><input type="number" id="factor1" value="0.0022"></div>
+        <div class="form-group"><label>店-客係數：</label><input type="number" id="factor2" value="0.0023"></div>
+        <div class="form-group"><label>遠端補償：</label><input type="number" id="offset2" value="0.4"></div>
     </div>
 
-    <div id="resultBox" class="result-highlight" style="display:none;"></div>
+    <div id="resultBox" style="display:none;"></div>
 </div>
 
 <script>
 async function processImage(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
-        const img = new Image();
-        img.src = e.target.result;
+        const img = new Image(); img.src = e.target.result;
         img.onload = async () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = img.width; canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
+            const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+            canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
 
-            const cropYPos = parseFloat(document.getElementById('cropY').value);
-            const roiCanvas = document.createElement('canvas');
-            const rCtx = roiCanvas.getContext('2d');
-            const roiH = canvas.height * 0.15;
-            roiCanvas.width = canvas.width; roiCanvas.height = roiH;
-            rCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, roiH, 0, 0, canvas.width, roiH);
-            
-            const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', { tessedit_char_whitelist: '0123456789.' });
+            const { data: { text } } = await Tesseract.recognize(canvas, 'eng', { tessedit_char_whitelist: '0123456789.' });
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
-            const f1 = parseFloat(document.getElementById('factor1').value);
-            const f2 = parseFloat(document.getElementById('factor2').value);
-            const off2 = parseFloat(document.getElementById('offset2').value);
+            const f1 = parseFloat(document.getElementById('factor1').value), f2 = parseFloat(document.getElementById('factor2').value), off2 = parseFloat(document.getElementById('offset2').value);
             let b={x:0,y:0,c:0}, s={x:0,y:0,c:0}, c={x:0,y:0,c:0};
 
             for (let i = 0; i < mapData.length; i += 4) {
@@ -100,15 +85,11 @@ async function processImage(file) {
 
 function calculate() {
     const inc = parseFloat(document.getElementById('totalIncome').value) || 0;
-    const d1 = parseFloat(document.getElementById('dist1').value) || 0;
-    const d2 = parseFloat(document.getElementById('dist2').value) || 0;
-    const tips = parseFloat(document.getElementById('tips').value) || 0;
-    const bonus = parseFloat(document.getElementById('bonus').value) || 0;
-    const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
+    const d1 = parseFloat(document.getElementById('dist1').value) || 0, d2 = parseFloat(document.getElementById('dist2').value) || 0;
+    const tips = parseFloat(document.getElementById('tips').value) || 0, bonus = parseFloat(document.getElementById('bonus').value) || 0, mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
     const totalDist = d1 + d2;
-    const totalEarnings = inc + tips + bonus;
-    const basePay = (totalEarnings - 10) / mult;
+    const basePay = (inc + tips + bonus - 10) / mult;
     const efficiency = totalDist > 0 ? (basePay / totalDist) : 0;
     
     let msg = efficiency >= 10 ? "✅ 去去去" : (efficiency >= 6 ? "⚠️ 有點硬" : "❌ 拒拒拒");
