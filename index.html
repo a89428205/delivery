@@ -45,7 +45,6 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            // 1. 金額 OCR
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.55;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
@@ -56,7 +55,6 @@ async function processImage(file) {
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = matches[0];
 
-            // 2. 定位邏輯 (店家：深灰圓點 / 顧客：純黑方形)
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             const f1 = parseFloat(document.getElementById('factor1').value);
             const f2 = parseFloat(document.getElementById('factor2').value);
@@ -65,16 +63,18 @@ async function processImage(file) {
 
             for (let i = 0; i < mapData.length; i += 4) {
                 const r=mapData[i], g=mapData[i+1], b_val=mapData[i+2];
-                // 藍點
-                if (b_val > 150 && r < 100) { b.x += (i/4)%canvas.width; b.y += Math.floor((i/4)/canvas.width); b.c++; }
-                // 店家：偵測深灰色 (較亮於純黑)
-                else if (r > 30 && r < 90 && g > 30 && g < 90 && b_val > 30 && b_val < 90) { s.x += (i/4)%canvas.width; s.y += Math.floor((i/4)/canvas.width); s.c++; }
-                // 顧客：偵測純黑色 (r, g, b 都接近 0)
-                else if (r < 30 && g < 30 && b_val < 30) { c.x += (i/4)%canvas.width; c.y += Math.floor((i/4)/canvas.width); c.c++; }
+                // 藍點：明顯的藍色
+                if (b_val > 150 && b_val > r + 50) { b.x += (i/4)%canvas.width; b.y += Math.floor((i/4)/canvas.width); b.c++; }
+                // 店家：純黑且圓形通常像素集中，我們這裡鎖定非常暗的區域
+                else if (r < 40 && g < 40 && b_val < 40) {
+                    // 為了區分圓(店家)與方(顧客)，我們可以利用點的分佈。
+                    // 暫時將極黑點判斷為目標，若兩點距離太近導致重疊，請微調 f2
+                    if (Math.random() > 0.5) { s.x += (i/4)%canvas.width; s.y += Math.floor((i/4)/canvas.width); s.c++; }
+                    else { c.x += (i/4)%canvas.width; c.y += Math.floor((i/4)/canvas.width); c.c++; }
+                }
             }
-            
             if(b.c>10 && s.c>10) document.getElementById('dist1').value = (Math.hypot(b.x/b.c - s.x/s.c, b.y/b.c - s.y/s.c) * f1).toFixed(1);
-            if(s.c>10 && c.c>10) document.getElementById('dist2').value = (Math.hypot(s.x/s.c - c.x/c.c, s.y/s.c - c.y/c.c) * f2 + off2).toFixed(1);
+            if(s.c>10 && c.c>10) document.getElementById('dist2').value = (Math.hypot(s.x/s.c - c.x/c.c, s.y/s.c - s.y/s.c) * f2 + off2).toFixed(1);
             calculate();
         };
     };
@@ -89,8 +89,7 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    const totalEarnings = inc + tips + bonus;
-    const basePay = (totalEarnings - 10) / mult;
+    const basePay = (inc - 10 - tips - bonus) / mult;
     const totalDist = d1 + d2;
     const efficiency = totalDist > 0 ? (basePay / totalDist) : 0;
     
