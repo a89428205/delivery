@@ -21,8 +21,9 @@
     <div style="margin-top:15px;">
         <div class="form-group"><label>💰 總金額(自動)：</label><input type="number" id="totalIncome" step="0.1" oninput="calculate()"></div>
         <div class="form-group"><label>🔍 偵測高度：</label><input type="number" id="cropY" value="0.55" step="0.05" oninput="calculate()"></div>
-        <div class="form-group"><label>📏 近端係數：</label><input type="number" id="factor1" value="0.0006" step="0.0001" oninput="calculate()"></div>
-        <div class="form-group"><label>📏 遠端係數：</label><input type="number" id="factor2" value="0.005" step="0.0001" oninput="calculate()"></div>
+        <!-- 係數調整框：遇到地圖比例不同時，直接在這裡微調即可 -->
+        <div class="form-group"><label>📏 藍-店係數：</label><input type="number" id="factor1" value="0.0036" step="0.0001" oninput="calculate()"></div>
+        <div class="form-group"><label>📏 店-客係數：</label><input type="number" id="factor2" value="0.0025" step="0.0001" oninput="calculate()"></div>
         <div class="form-group"><label>🔧 遠端補償 (km)：</label><input type="number" id="offset2" value="0.4" step="0.1" oninput="calculate()"></div>
         <div class="form-group"><label>📍 藍點至店家 (km)：</label><input type="number" id="dist1" step="0.1" oninput="calculate()"></div>
         <div class="form-group"><label>🛣️ 店家至顧客 (km)：</label><input type="number" id="dist2" step="0.1" oninput="calculate()"></div>
@@ -45,6 +46,7 @@ async function processImage(file) {
             canvas.width = img.width; canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
+            // 1. 金額 OCR
             const cropYPos = parseFloat(document.getElementById('cropY').value) || 0.55;
             const roiCanvas = document.createElement('canvas');
             const rCtx = roiCanvas.getContext('2d');
@@ -55,6 +57,7 @@ async function processImage(file) {
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
+            // 2. 定位邏輯
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             const f1 = parseFloat(document.getElementById('factor1').value);
             const f2 = parseFloat(document.getElementById('factor2').value);
@@ -89,7 +92,7 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    // 官方演算法：每公里配送費值 = (總金額 + 小費 + 加碼 - 固定獎勵10元) / 倍率 / 總距離
+    // 官方演算法逻辑：(總金額 + 小費 + 加碼 - 固定獎勵10元) / 倍率 / 總距離
     const totalEarnings = inc + tips + bonus;
     const basePay = (totalEarnings - 10) / mult;
     const totalDist = d1 + d2;
