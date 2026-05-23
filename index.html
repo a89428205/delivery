@@ -14,15 +14,15 @@
             background: rgba(255, 255, 255, 0.95); padding: 25px; border-radius: 25px; 
             max-width: 400px; width: 90%; box-shadow: 0 15px 35px rgba(0,0,0,0.2);
         }
-        h2 { text-align: center; color: #d32f2f; margin-bottom: 20px; cursor: pointer; }
+        h2 { text-align: center; color: #d32f2f; margin-bottom: 20px; cursor: pointer; user-select: none; }
         .form-group { margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
-        label { font-weight: bold; color: #444; }
-        input { width: 45%; padding: 10px; border: 1px solid #ddd; border-radius: 10px; text-align: right; background: #fff; }
+        label { font-weight: bold; color: #444; font-size: 14px; }
+        input { width: 50%; padding: 10px; border: 1px solid #ddd; border-radius: 10px; text-align: right; background: #fff; }
         #resultBox { 
             background: #fff3cd; padding: 20px; text-align: center; font-weight: bold; 
-            margin-top: 20px; border-radius: 20px; border: 2px dashed #ffc107; font-size: 18px; color: #856404;
+            margin-top: 20px; border-radius: 20px; border: 2px dashed #ffc107; font-size: 18px; color: #856404; display: none;
         }
-        .hidden-params { display: none; background: #f9f9f9; padding: 10px; border-radius: 10px; margin-top: 10px; }
+        .hidden-params { display: none; background: #f9f9f9; padding: 15px; border-radius: 15px; margin-top: 10px; border: 1px solid #eee; }
     </style>
 </head>
 <body>
@@ -38,15 +38,14 @@
     <div class="form-group"><label>🔥 加碼：</label><input type="number" id="bonus" value="0" oninput="calculate()"></div>
     <div class="form-group"><label>📈 倍率：</label><input type="number" id="multiplier" value="1.35" step="0.01" oninput="calculate()"></div>
 
-    <!-- 隱藏的校準區域 -->
     <div id="adv" class="hidden-params">
-        <div class="form-group"><label>偵測高度：</label><input type="number" id="cropY" value="0.53"></div>
-        <div class="form-group"><label>藍-店係數：</label><input type="number" id="factor1" value="0.0022"></div>
-        <div class="form-group"><label>店-客係數：</label><input type="number" id="factor2" value="0.0023"></div>
-        <div class="form-group"><label>遠端補償：</label><input type="number" id="offset2" value="0.4"></div>
+        <div class="form-group"><label>金額偵測高度：</label><input type="number" id="cropY" value="0.53" step="0.01"></div>
+        <div class="form-group"><label>藍-店係數：</label><input type="number" id="factor1" value="0.0022" step="0.0001"></div>
+        <div class="form-group"><label>店-客係數：</label><input type="number" id="factor2" value="0.0023" step="0.0001"></div>
+        <div class="form-group"><label>遠端補償：</label><input type="number" id="offset2" value="0.4" step="0.1"></div>
     </div>
 
-    <div id="resultBox" style="display:none;"></div>
+    <div id="resultBox"></div>
 </div>
 
 <script>
@@ -58,7 +57,14 @@ async function processImage(file) {
             const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
             canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
 
-            const { data: { text } } = await Tesseract.recognize(canvas, 'eng', { tessedit_char_whitelist: '0123456789.' });
+            // 調整金額偵測區域
+            const cropY = parseFloat(document.getElementById('cropY').value) || 0.53;
+            const cropCanvas = document.createElement('canvas');
+            const cCtx = cropCanvas.getContext('2d');
+            cropCanvas.width = img.width; cropCanvas.height = img.height * 0.15;
+            cCtx.drawImage(canvas, 0, img.height * cropY, img.width, img.height * 0.15, 0, 0, img.width, img.height * 0.15);
+
+            const { data: { text } } = await Tesseract.recognize(cropCanvas, 'eng', { tessedit_char_whitelist: '0123456789.' });
             const matches = text.match(/\d+(\.\d{1,2})?/);
             if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
@@ -100,4 +106,3 @@ function calculate() {
 </script>
 </body>
 </html>
-
