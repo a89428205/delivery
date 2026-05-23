@@ -53,7 +53,7 @@ async function processImage(file) {
             rCtx.drawImage(canvas, 0, canvas.height * cropYPos, canvas.width, roiH, 0, 0, canvas.width, roiH);
             const { data: { text } } = await Tesseract.recognize(roiCanvas, 'eng', { tessedit_char_whitelist: '0123456789.' });
             const matches = text.match(/\d+(\.\d{1,2})?/);
-            if (matches) document.getElementById('totalIncome').value = matches[0];
+            if (matches) document.getElementById('totalIncome').value = parseFloat(matches[0]);
 
             const mapData = ctx.getImageData(0, 0, canvas.width, canvas.height * 0.6).data;
             const f1 = parseFloat(document.getElementById('factor1').value);
@@ -62,19 +62,19 @@ async function processImage(file) {
             let b={x:0,y:0,c:0}, s={x:0,y:0,c:0}, c={x:0,y:0,c:0};
 
             for (let i = 0; i < mapData.length; i += 4) {
+                const x = (i/4)%canvas.width;
+                const y = Math.floor((i/4)/canvas.width);
                 const r=mapData[i], g=mapData[i+1], b_val=mapData[i+2];
-                // 藍點：明顯的藍色
-                if (b_val > 150 && b_val > r + 50) { b.x += (i/4)%canvas.width; b.y += Math.floor((i/4)/canvas.width); b.c++; }
-                // 店家：純黑且圓形通常像素集中，我們這裡鎖定非常暗的區域
-                else if (r < 40 && g < 40 && b_val < 40) {
-                    // 為了區分圓(店家)與方(顧客)，我們可以利用點的分佈。
-                    // 暫時將極黑點判斷為目標，若兩點距離太近導致重疊，請微調 f2
-                    if (Math.random() > 0.5) { s.x += (i/4)%canvas.width; s.y += Math.floor((i/4)/canvas.width); s.c++; }
-                    else { c.x += (i/4)%canvas.width; c.y += Math.floor((i/4)/canvas.width); c.c++; }
+                
+                if (b_val > 150 && r < 100) { b.x += x; b.y += y; b.c++; }
+                else if (r < 50 && g < 50 && b_val < 50) {
+                    if (y < canvas.height * 0.3) { s.x += x; s.y += y; s.c++; }
+                    else { c.x += x; c.y += y; c.c++; }
                 }
             }
+            
             if(b.c>10 && s.c>10) document.getElementById('dist1').value = (Math.hypot(b.x/b.c - s.x/s.c, b.y/b.c - s.y/s.c) * f1).toFixed(1);
-            if(s.c>10 && c.c>10) document.getElementById('dist2').value = (Math.hypot(s.x/s.c - c.x/c.c, s.y/s.c - s.y/s.c) * f2 + off2).toFixed(1);
+            if(s.c>10 && c.c>10) document.getElementById('dist2').value = (Math.hypot(s.x/s.c - c.x/c.c, s.y/s.c - c.y/c.c) * f2 + off2).toFixed(1);
             calculate();
         };
     };
@@ -89,7 +89,9 @@ function calculate() {
     const bonus = parseFloat(document.getElementById('bonus').value) || 0;
     const mult = parseFloat(document.getElementById('multiplier').value) || 1.35;
     
-    const basePay = (inc - 10 - tips - bonus) / mult;
+    // 官方演算法：每公里配送費值 = (總金額 + 小費 + 加碼 - 固定獎勵10元) / 倍率 / 總距離
+    const totalEarnings = inc + tips + bonus;
+    const basePay = (totalEarnings - 10) / mult;
     const totalDist = d1 + d2;
     const efficiency = totalDist > 0 ? (basePay / totalDist) : 0;
     
