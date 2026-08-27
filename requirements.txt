@@ -1,0 +1,4 @@
+streamlit
+pillow
+rapidocr-onnxruntime
+numpy
