@@ -2,3 +2,4 @@ streamlit
 pillow
 rapidocr-onnxruntime
 numpy
+opencv-python-headless
