@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# 介面與行動端優化
+# 行動端與介面樣式優化
 st.markdown("""
 <style>
     .stApp { background-color: #030712; color: #f3f4f6; }
@@ -105,7 +105,7 @@ ocr = load_ocr()
 BASE_PRICE = 45.0       # 工會保障底價 $45
 PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
 
-uploaded_file = st.file_uploader("1️⃣ 上傳主要行程/初始接單截圖", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("1️⃣ 上傳主要行程 / 初始接單截圖", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
@@ -129,36 +129,34 @@ if uploaded_file is not None:
     detected_orders = int(order_match.group(1)) if order_match else 1
 
     st.divider()
-    st.subheader("⏱️ 行程時間與數據確認")
+    st.subheader("⏱️ 主行程數據確認")
     
     col_a, col_b, col_c = st.columns(3)
-    main_price = col_a.number_input("行程實領金額 ($)", value=total_price, step=1.0)
+    main_price = col_a.number_input("初始金額 ($)", value=total_price, step=1.0)
     main_minutes = col_b.number_input("行程總時間（分鐘）", value=total_est_min, step=1)
     main_orders = col_c.number_input("初始單數", value=detected_orders, min_value=1, step=1)
 
-    # ---------------- 途中夾單模組 ----------------
+    # ---------------- 支援最多 3 張途中夾單模組 ----------------
     st.divider()
-    has_extra = st.checkbox("➕ 本趟行程包含「途中夾單 / 順路加單」？")
+    st.subheader("➕ 途中夾單 / 順路加單（最多可追加 3 張）")
     
-    extra_orders = 0
-    extra_price = 0.0
+    extra_count = st.radio("本趟行程途中共增加了幾張夾單？", [0, 1, 2, 3], horizontal=True)
     
-    if has_extra:
-        st.info("💡 請選擇「手動輸入夾單數據」或「上傳途中夾單截圖」：")
-        tab_manual, tab_upload = st.tabs(["✍️ 手動輸入夾單", "📷 上傳夾單截圖"])
+    total_extra_orders = 0
+    total_extra_price = 0.0
+    
+    for i in range(1, extra_count + 1):
+        st.markdown(f"##### 🛵 第 {i} 張夾單資訊")
+        tab_upload, tab_manual = st.tabs([f"📷 上傳第 {i} 張夾單截圖", f"✍️ 手動輸入第 {i} 張"])
         
-        with tab_manual:
-            ex_col1, ex_col2 = st.columns(2)
-            manual_extra_orders = ex_col1.number_input("夾單數量 (+幾單)", value=1, min_value=1, step=1)
-            manual_extra_price = ex_col2.number_input("夾單增加金額 (+$)", value=0.0, step=1.0)
-            extra_orders = manual_extra_orders
-            extra_price = manual_extra_price
-            
+        ex_orders = 1
+        ex_price = 0.0
+        
         with tab_upload:
-            extra_file = st.file_uploader("2️⃣ 上傳途中夾單截圖", type=["png", "jpg", "jpeg"], key="extra_img")
+            extra_file = st.file_uploader(f"上傳第 {i} 張夾單截圖", type=["png", "jpg", "jpeg"], key=f"extra_file_{i}")
             if extra_file is not None:
                 ex_image = Image.open(extra_file)
-                st.image(ex_image, caption="已讀取夾單截圖", use_container_width=True)
+                st.image(ex_image, caption=f"已讀取第 {i} 張夾單截圖", use_container_width=True)
                 ex_img_np = np.array(ex_image)
                 ex_result, _ = ocr(ex_img_np)
                 ex_lines = [item[1] for item in ex_result] if ex_result else []
@@ -172,12 +170,25 @@ if uploaded_file is not None:
                 auto_ex_orders = int(ex_o_match.group(1)) if ex_o_match else 1
                 
                 up_col1, up_col2 = st.columns(2)
-                extra_orders = up_col1.number_input("截圖辨識夾單數 (+單)", value=auto_ex_orders, min_value=1, step=1)
-                extra_price = up_col2.number_input("截圖辨識夾單金額 (+$)", value=auto_ex_price, step=1.0)
+                ex_orders = up_col1.number_input(f"第 {i} 張夾單數 (+單)", value=auto_ex_orders, min_value=1, step=1, key=f"ex_ord_up_{i}")
+                ex_price = up_col2.number_input(f"第 {i} 張夾單金額 (+$)", value=auto_ex_price, step=1.0, key=f"ex_prc_up_{i}")
+                
+        with tab_manual:
+            man_col1, man_col2 = st.columns(2)
+            man_orders = man_col1.number_input(f"手動第 {i} 張夾單數 (+單)", value=1, min_value=1, step=1, key=f"ex_ord_man_{i}")
+            man_price = man_col2.number_input(f"手動第 {i} 張夾單金額 (+$)", value=0.0, step=1.0, key=f"ex_prc_man_{i}")
+            
+            # 若無上傳圖片則採用手動欄位
+            if extra_file is None:
+                ex_orders = man_orders
+                ex_price = man_price
+                
+        total_extra_orders += ex_orders
+        total_extra_price += ex_price
 
     # ---------------- 總計與專法試算 ----------------
-    final_orders = main_orders + extra_orders
-    final_price = main_price + extra_price
+    final_orders = main_orders + total_extra_orders
+    final_price = main_price + total_extra_price
     actual_minutes = main_minutes
 
     # 依專法「單單計價」公式計算
@@ -188,7 +199,7 @@ if uploaded_file is not None:
     shortfall = max(0.0, total_guarantee - final_price)
 
     st.divider()
-    st.markdown(f"#### 📌 最終核算：**共 {final_orders} 單** | 總實領 **${final_price:.1f}**")
+    st.markdown(f"#### 📌 最終加總：**共 {final_orders} 單** (主行程 {main_orders} 單 + 夾單 {total_extra_orders} 單) | 總金額 **${final_price:.1f}**")
     
     res_col1, res_col2, res_col3 = st.columns(3)
     res_col1.metric("專法保障門檻 (含底價/時間)", f"${total_guarantee:.1f}")
@@ -200,7 +211,7 @@ if uploaded_file is not None:
         res_col3.metric("本單需補足金額", "$0.0", delta="已達標")
 
     if st.button("💾 記錄此單需補足金額"):
-        note_str = f"{final_orders}單疊單" + (f" (含夾單+{extra_orders})" if extra_orders > 0 else "")
+        note_str = f"{final_orders}單疊單" + (f" (含 {extra_count} 次夾單 +{total_extra_orders}單)" if total_extra_orders > 0 else "")
         save_record(final_orders, final_price, actual_minutes, round(total_guarantee, 1), round(shortfall, 1), note_str)
         st.success("⚡ 已將此單需補足金額存入統計檔案！")
 
