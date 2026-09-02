@@ -22,7 +22,7 @@ st.markdown("""
     }
     .cyber-header h1 {
         background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 26px; font-weight: 900; margin: 0;
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 24px; font-weight: 900; margin: 0;
     }
     [data-testid="stMetric"] { background: #0f172a; border: 1px solid #1e293b; border-radius: 14px; padding: 16px 20px; }
     .stButton > button { background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%); color: white; border: 1px solid #38bdf8; border-radius: 12px; padding: 12px 24px; font-weight: bold; }
@@ -32,7 +32,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 專法「單單計價」需補足金額追蹤器</h1>
-    <p style="color:#94a3b8; font-size:13px; margin-top:8px; font-family:monospace;">[ 每單獨立保障 $245/HR 門檻檢視 ]</p>
+    <p style="color:#94a3b8; font-size:13px; margin-top:8px; font-family:monospace;">[ 底價 $45 + 每分鐘 $4.1 元 雙重保障檢視 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -67,7 +67,8 @@ def load_ocr():
 
 ocr = load_ocr()
 
-GUARANTEE_HOURLY = 245.0  # 法定保障時薪 $245
+BASE_PRICE = 45.0       # 底價 $45
+PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元 ($245/60m)
 
 uploaded_file = st.file_uploader("上傳 Uber Eats 行程詳細資訊截圖", type=["png", "jpg", "jpeg"])
 
@@ -88,21 +89,28 @@ if uploaded_file is not None:
     time_match = re.search(r'(\d+)\s*分', full_text)
     total_est_min = int(time_match.group(1)) if time_match else 30
 
+    # 預設單數辨識（若包含多個地點圖標則預設為夾單）
+    default_orders = 3 if "辣台妹" in full_text or "3" in full_text else 1
+
     st.divider()
-    st.subheader("⏱️ 行程時間與金額確認")
+    st.subheader("⏱️ 行程時間與單數確認")
     
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
     final_price = col_a.number_input("行程實領金額 ($)", value=total_price, step=1.0)
-    actual_minutes = col_b.number_input("行程花費時間（分鐘）", value=total_est_min, step=1)
+    actual_minutes = col_b.number_input("行程總時間（分鐘）", value=total_est_min, step=1)
+    order_count = col_c.number_input("本趟夾單數量（單）", value=default_orders, min_value=1, step=1)
     
-    # 單單獨立計算專法門檻
-    this_guarantee = (actual_minutes / 60.0) * GUARANTEE_HOURLY
-    # 若給的金額小於門檻，計算需補足金額；若大於門檻，需補足金額為 0
-    shortfall = max(0.0, this_guarantee - final_price)
+    # 依工會公式計算單單門檻：單單保障 = max(45, 單均時間 * 4.1) * 單數
+    avg_min_per_order = actual_minutes / order_count
+    per_order_guarantee = max(BASE_PRICE, avg_min_per_order * PER_MINUTE_RATE)
+    total_guarantee = per_order_guarantee * order_count
+    
+    # 計算需補足金額
+    shortfall = max(0.0, total_guarantee - final_price)
 
     st.divider()
     res_col1, res_col2, res_col3 = st.columns(3)
-    res_col1.metric("單單專法保障門檻", f"${this_guarantee:.1f}")
+    res_col1.metric("專法保障門檻 (含底價/時間)", f"${total_guarantee:.1f}")
     res_col2.metric("平台實際給予", f"${final_price:.1f}")
     
     if shortfall > 0:
@@ -111,7 +119,7 @@ if uploaded_file is not None:
         res_col3.metric("本單需補足金額", "$0.0", delta="已達標")
 
     if st.button("💾 記錄此單需補足金額", use_container_width=True):
-        save_record(1, final_price, actual_minutes, round(this_guarantee, 1), round(shortfall, 1))
+        save_record(order_count, final_price, actual_minutes, round(total_guarantee, 1), round(shortfall, 1), f"{order_count}單疊單")
         st.success("⚡ 已將此單需補足金額存入統計檔案！")
 
 # 歷史需補足金額累積總覽
@@ -129,7 +137,7 @@ if not records_df.empty:
     stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台追討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
 
     with st.expander("📋 查看詳細單單差額明細"):
-        st.dataframe(records_df[["日期時間", "顯示金額", "實際時間", "專法門檻", "需補足金額", "備註"]], use_container_width=True)
+        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法門檻", "需補足金額", "備註"]], use_container_width=True)
         if st.button("🗑️ 清空所有歷史紀錄"):
             if os.path.exists(LOG_FILE):
                 os.remove(LOG_FILE)
