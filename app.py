@@ -12,7 +12,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# 行動端與介面樣式優化
 st.markdown("""
 <style>
     .stApp { background-color: #030712; color: #f3f4f6; }
@@ -67,7 +66,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 專法「單單計價」需補足金額追蹤器</h1>
-    <p style="color:#94a3b8; font-size:12px; margin-top:6px; font-family:monospace;">[ 底價 $45 + 每分鐘 $4.1 元 雙重保障檢視 ]</p>
+    <p style="color:#94a3b8; font-size:12px; margin-top:6px; font-family:monospace;">[ 法定標準：單筆底價 $45 與 服務時間×$4.1 擇高對齊官方明細 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -102,7 +101,7 @@ def load_ocr():
 
 ocr = load_ocr()
 
-BASE_PRICE = 45.0       # 工會保障底價 $45
+BASE_PRICE = 45.0       # 法定單筆底價 $45
 PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
 
 uploaded_file = st.file_uploader("1️⃣ 上傳主要行程 / 初始接單截圖", type=["png", "jpg", "jpeg"])
@@ -133,7 +132,7 @@ if uploaded_file is not None:
     
     col_a, col_b, col_c = st.columns(3)
     main_price = col_a.number_input("初始金額 ($)", value=total_price, step=1.0)
-    main_minutes = col_b.number_input("行程總時間（分鐘）", value=total_est_min, step=1)
+    main_minutes = col_b.number_input("行程總時間（分鐘）", value=float(total_est_min), step=0.1)
     main_orders = col_c.number_input("初始單數", value=detected_orders, min_value=1, step=1)
 
     # ---------------- 支援最多 3 張途中夾單模組 ----------------
@@ -162,7 +161,6 @@ if uploaded_file is not None:
                 ex_lines = [item[1] for item in ex_result] if ex_result else []
                 ex_text = " ".join(ex_lines)
                 
-                # 辨識夾單金額與單數
                 ex_p_match = re.search(r'\$\s*(\d+(\.\d+)?)', ex_text)
                 ex_o_match = re.search(r'\+\s*(\d+)', ex_text) or re.search(r'(\d+)\s*單', ex_text)
                 
@@ -178,7 +176,6 @@ if uploaded_file is not None:
             man_orders = man_col1.number_input(f"手動第 {i} 張夾單數 (+單)", value=1, min_value=1, step=1, key=f"ex_ord_man_{i}")
             man_price = man_col2.number_input(f"手動第 {i} 張夾單金額 (+$)", value=0.0, step=1.0, key=f"ex_prc_man_{i}")
             
-            # 若無上傳圖片則採用手動欄位
             if extra_file is None:
                 ex_orders = man_orders
                 ex_price = man_price
@@ -186,24 +183,22 @@ if uploaded_file is not None:
         total_extra_orders += ex_orders
         total_extra_price += ex_price
 
-    # ---------------- 總計與專法試算 ----------------
+    # ---------------- 依照官方明細邏輯：底價與時間換算擇高計算 ----------------
     final_orders = main_orders + total_extra_orders
     final_price = main_price + total_extra_price
     actual_minutes = main_minutes
 
-    # 依專法「單單計價」公式計算
-    avg_min_per_order = actual_minutes / final_orders
-    per_order_guarantee = max(BASE_PRICE, avg_min_per_order * PER_MINUTE_RATE)
-    total_guarantee = per_order_guarantee * final_orders
+    # 公式：對應官方明細，法定標準目標為 (單數*底價) 與 (總時間*4.1) 擇高對齊
+    statutory_target = max(final_orders * BASE_PRICE, actual_minutes * PER_MINUTE_RATE)
     
-    shortfall = max(0.0, total_guarantee - final_price)
+    shortfall = max(0.0, statutory_target - final_price)
 
     st.divider()
-    st.markdown(f"#### 📌 最終加總：**共 {final_orders} 單** (主行程 {main_orders} 單 + 夾單 {total_extra_orders} 單) | 總金額 **${final_price:.1f}**")
+    st.markdown(f"#### 📌 最終加總：**共 {final_orders} 單** | 總實領 **${final_price:.1f}**")
     
     res_col1, res_col2, res_col3 = st.columns(3)
-    res_col1.metric("專法保障門檻 (含底價/時間)", f"${total_guarantee:.1f}")
-    res_col2.metric("平台實際給予 (含夾單)", f"${final_price:.1f}")
+    res_col1.metric("專法法定保障門檻", f"${statutory_target:.1f}")
+    res_col2.metric("平台實際給予", f"${final_price:.1f}")
     
     if shortfall > 0:
         res_col3.metric("本單需補足金額", f"${shortfall:.1f}", delta=f"-${shortfall:.1f}", delta_color="inverse")
@@ -212,7 +207,7 @@ if uploaded_file is not None:
 
     if st.button("💾 記錄此單需補足金額"):
         note_str = f"{final_orders}單疊單" + (f" (含 {extra_count} 次夾單 +{total_extra_orders}單)" if total_extra_orders > 0 else "")
-        save_record(final_orders, final_price, actual_minutes, round(total_guarantee, 1), round(shortfall, 1), note_str)
+        save_record(final_orders, final_price, actual_minutes, round(statutory_target, 1), round(shortfall, 1), note_str)
         st.success("⚡ 已將此單需補足金額存入統計檔案！")
 
 # 歷史紀錄總覽
@@ -227,7 +222,7 @@ if not records_df.empty:
     
     stat_col1, stat_col2 = st.columns(2)
     stat_col1.metric("已紀錄總筆數", f"{total_orders} 筆")
-    stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台追討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
+    stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
 
     with st.expander("📋 查看詳細單單差額明細"):
         st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法門檻", "需補足金額", "備註"]], use_container_width=True)
