@@ -188,18 +188,39 @@ if uploaded_file is not None:
     
     img_np = np.array(image)
     result, _ = ocr(img_np)
-    full_text = "\n".join([line[1] for line in result]) if result else ""
     
-    # OCR 邏輯
+    lines = [line[1] for line in result] if result else []
+    full_text = "\n".join(lines)
+    
+    # === 強化版單數辨識邏輯 ===
     auto_count = 1
-    count_match = re.search(r'外送\s*[\(（\s]*(\d+)[\)）\s]*', full_text)
-    if count_match:
-        auto_count = int(count_match.group(1))
-    else:
-        address_count = len(re.findall(r'台灣臺北市|市|區', full_text))
-        if address_count >= 3: auto_count = 3
-        elif address_count == 2: auto_count = 2
+    
+    # 優先規則 1：尋找 "外送 (X)" 或 "外送(X)" 或 "外送 X"
+    match_bracket = re.search(r'外送\s*[\(（\s]*(\d+)[\)）\s]*', full_text)
+    
+    # 優先規則 2：尋找 "X 筆外送" 或 "X 個外送"
+    match_prefix = re.search(r'(\d+)\s*(?:筆|個)?\s*外送', full_text)
+    
+    # 優先規則 3：計算畫面中出現「取貨」或「商家」或「送達」的頻率
+    pickup_count = len(re.findall(r'取貨|取餐|商家', full_text))
+    drop_count = len(re.findall(r'送達|下客|顧客', full_text))
 
+    if match_bracket:
+        auto_count = int(match_bracket.group(1))
+    elif match_prefix and int(match_prefix.group(1)) <= 5:
+        auto_count = int(match_prefix.group(1))
+    elif pickup_count > 1 or drop_count > 1:
+        auto_count = max(pickup_count, drop_count)
+    else:
+        # 備用判斷：如果地址包含多個區/路，算疊單
+        road_count = len(re.findall(r'[路街巷段區]', full_text))
+        if road_count >= 4:
+            auto_count = 2
+
+    # 限制合理單數範圍 (1~5)
+    auto_count = max(1, min(auto_count, 5))
+
+    # 金額、時間、里程辨識
     price_match = re.search(r'\$\s*(\d+)', full_text)
     price1 = float(price_match.group(1)) if price_match else 0.0
     
@@ -214,7 +235,7 @@ if uploaded_file is not None:
     final_count = st.selectbox(
         "🎯 辨識單數確認：", 
         options=[1, 2, 3, 4, 5], 
-        index=min(max(auto_count - 1, 0), 4)
+        index=auto_count - 1
     )
 
     extra_price, extra_min, extra_dist = 0.0, 0, 0.0
