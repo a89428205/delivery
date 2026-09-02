@@ -186,37 +186,38 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已讀取截圖", use_container_width=True)
     
-    # 判斷整張圖的全圖文字
     img_np = np.array(image)
     result_full, _ = ocr(img_np)
-    full_lines = [line[1] for line in result_full] if result_full else []
-    full_text = " ".join(full_lines)
     
-    # 專門裁切圖片上方 35%
-    w, h = image.size
-    top_crop = image.crop((0, 0, w, int(h * 0.35)))
-    result_top, _ = ocr(np.array(top_crop))
-    top_lines = [line[1] for line in result_top] if result_top else []
-    top_text = " ".join(top_lines)
+    lines_text = []
+    if result_full:
+        for item in result_full:
+            # item 結構: [box_points, text, confidence]
+            lines_text.append(item[1])
 
-    # === 終極抗噪單數判斷邏輯 ===
+    full_text = " ".join(lines_text)
+
+    # === 全地形盲測：動態深度單數演算法 ===
     auto_count = 1
     
-    clean_full_text = full_text.replace("（", "(").replace("）", ")").replace(" ", "")
-    clean_top_text = top_text.replace("（", "(").replace("）", ")").replace(" ", "")
-
-    bracket_match = re.search(r'外送\(?(\d+)\)?', clean_full_text) or re.search(r'外送\(?(\d+)\)?', clean_top_text)
+    # 特徵 1：直接抓取文字中的括號數字，例如 外送(3)、外送 (2)、外送3
+    clean_text = full_text.replace("（", "(").replace("）", ")").replace(" ", "")
+    bracket_match = re.search(r'外送\(?([2-5])\)?', clean_text)
     
+    # 特徵 2：計算「郵遞區號 + 台灣」或「台灣臺北市/新北市」的完整地址出現幾次
+    # 這是最不受卡片高度影響的物理指標！
+    address_count = len(re.findall(r'\d{3}\s*台灣|\d{3}台灣|台灣[臺台]北', full_text))
+    
+    # 特徵 3：計算路線節點關鍵字 (連線圓點數量對應的文字)
+    node_count = len(re.findall(r'105|100|104|106|110|114|115|台灣', full_text))
+
     if bracket_match:
         auto_count = int(bracket_match.group(1))
+    elif address_count >= 2:
+        auto_count = address_count
     else:
-        tw_address_count = len(re.findall(r'1\d{2}台灣|台灣臺北市|台灣台北市', full_text))
-        address_matches = len(re.findall(r'區|路|街|巷|樓', full_text))
-
-        if tw_address_count >= 2:
-            auto_count = tw_address_count
-        elif address_matches >= 4:
-            auto_count = min(3, max(2, address_matches // 3))
+        # 如果沒有括號數字，且地址數 <= 1，100% 就是單單
+        auto_count = 1
 
     auto_count = max(1, min(auto_count, 5))
 
@@ -232,6 +233,12 @@ if uploaded_file is not None:
 
     st.divider()
     
+    # 顯示辨識結果
+    if auto_count == 1:
+        st.success("🎯 辨識成功：此行程共計 1 張單（單單）")
+    else:
+        st.warning(f"🎯 辨識成功：此行程共計 {auto_count} 張單（疊單）")
+
     final_count = st.selectbox(
         "🎯 辨識單數確認：", 
         options=[1, 2, 3, 4, 5], 
