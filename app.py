@@ -1,113 +1,91 @@
 import streamlit as st
 from PIL import Image
-from rapidocr_onnxruntime import RapidOCR
 import numpy as np
 import re
+from rapidocr_onnxruntime import RapidOCR
 
-st.set_page_config(page_title="外送AI自動看單神器", page_icon="📸", layout="centered")
+st.set_page_config(page_title="外送算單與時薪加成計算器", layout="centered")
 
-st.title("📸 外送 AI 截圖看單神器 (精準版)")
-st.caption("改用 ONNX 極速引擎，自動精準抓取 Uber Eats 金額、時間、店家數與公里數！")
+st.title("🛵 外送算單 & 保障加成計算器")
 
+# 初始化 RapidOCR
 @st.cache_resource
 def load_ocr():
     return RapidOCR()
 
-engine = load_ocr()
+ocr = load_ocr()
 
-uploaded_file = st.file_uploader("選擇或直接上傳派單截圖", type=["png", "jpg", "jpeg"])
+# 側邊欄：設定目前時段的保障加成 (預設 110 元/小時)
+st.sidebar.header("⚙️ 時段加成設定")
+hourly_bonus = st.sidebar.number_input("每小時加成金額 ($/HR)", value=110, step=10)
+min_rate = hourly_bonus / 60.0
+
+st.sidebar.markdown(f"**目前每分鐘補貼：** `${min_rate:.2f}` 元")
+
+# 檔案上傳
+uploaded_file = st.file_uploader("上傳 Uber Eats 接單截圖", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="已上傳截圖", use_container_width=True)
+    st.image(image, caption="已上傳截圖", use_column_width=True)
     
-    if "ocr_data" not in st.session_state or st.session_state.get("last_file") != uploaded_file.name:
-        with st.spinner("⚡ 0.5秒極速掃描中..."):
-            img_np = np.array(image)
-            results, _ = engine(img_np)
-            
-            full_text = ""
-            if results:
-                full_text = " ".join([res[1] for res in results])
-            
-            # 1. 抓金額 (優先尋找 $ 符號後面的主金額)
-            money = 0
-            money_matches = re.findall(r'\$\s*(\d{2,4})', full_text)
-            if money_matches:
-                money = max([int(m) for m in money_matches])
-            else:
-                alt_match = re.search(r'(?:包含|報酬|\b)\s*(\d{2,4})\b', full_text)
-                if alt_match:
-                    money = int(alt_match.group(1))
-
-            # 2. 抓時間
-            mins_match = re.search(r'(\d{1,3})\s*(?:分鐘|分|min)', full_text, re.IGNORECASE)
-            mins = int(mins_match.group(1)) if mins_match else 0
-            
-            # 3. 抓公里
-            km_match = re.search(r'([\d\.]+)\s*(?:公里|km)', full_text, re.IGNORECASE)
-            distance = float(km_match.group(1)) if km_match else 0.0
-            
-            # 4. 精準判斷店家數：抓取 "外送 (N)" 或 "外送 N" 的數字
-            shops = 1
-            shop_match = re.search(r'外送\s*[\(（]?\s*(\d+)\s*[\)）]?', full_text)
-            if shop_match:
-                shops = int(shop_match.group(1))
-            elif "(3)" in full_text or "（3）" in full_text:
-                shops = 3
-            elif "(2)" in full_text or "（2）" in full_text:
-                shops = 2
-            
-            # 5. 判斷高樓層 (計算 4 樓以上的地點數量)
-            floors = re.findall(r'(\d+)\s*樓', full_text)
-            stairs = sum(1 for f in floors if int(f) >= 4)
-
-            st.session_state.ocr_data = {
-                "money": money,
-                "mins": mins,
-                "distance": distance,
-                "shops": shops,
-                "stairs": stairs
-            }
-            st.session_state.last_file = uploaded_file.name
-
-    data = st.session_state.ocr_data
-
-    st.success("✨ 解析完成！請確認數據：")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        money = st.number_input("預估金額 ($)", value=data["money"], step=5)
-    with col2:
-        mins = st.number_input("預估時間 (分)", value=data["mins"], step=1)
-    with col3:
-        distance = st.number_input("距離 (公里)", value=data["distance"], step=0.1)
-
-    st.subheader("⚙️ 隱形坑點勾選")
-    c1, c2, c3 = st.columns(3)
-    shops = c1.number_input("取餐店家數", min_value=1, value=data["shops"], step=1)
-    stairs = c2.number_input("高樓層/商辦點數", min_value=0, value=data["stairs"], step=1)
-    is_far = c3.checkbox("送達點為邊緣區")
-
-    # 計算邏輯
-    extra_time = (shops - 1) * 8 + stairs * 6 + (12 if is_far else 0)
-    real_time = mins + extra_time if mins > 0 else 1
+    # 轉為 numpy 陣列進行 OCR 辨識
+    img_np = np.array(image)
+    result, _ = ocr(img_np)
     
-    real_hourly = (money / real_time) * 60 if real_time > 0 else 0
-    km_price = money / distance if distance > 0 else 0
+    full_text = ""
+    if result:
+        full_text = "\n".join([line[1] for line in result])
+    
+    # 提取金額 (例如 $94)
+    price_match = re.search(r'\$\s*(\d+)', full_text)
+    price = float(price_match.group(1)) if price_match else 0.0
+    
+    # 提取預估時間 (例如 28 分鐘)
+    time_match = re.search(r'(\d+)\s*分鐘', full_text)
+    est_minutes = int(time_match.group(1)) if time_match else 0
+    
+    # 提取預估里程 (例如 7.0 公里)
+    dist_match = re.search(r'([\d\.]+)\s*公里', full_text)
+    distance = float(dist_match.group(1)) if dist_match else 0.0
 
     st.divider()
-    st.subheader("📊 算單結果與建議")
+    st.subheader("📊 辨識結果與預估")
     
-    st.metric("修正後真實總時間", f"{real_time} 分鐘", f"原預估 {mins} 分 (+{extra_time}分)")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("顯示單價", f"${price:.0f}")
+    col2.metric("預估時間", f"{est_minutes} 分鐘")
+    col3.metric("預估里程", f"{distance} km")
     
-    col_a, col_b = st.columns(2)
-    col_a.metric("真實折算時薪", f"${real_hourly:.1f} / 時")
-    col_b.metric("1 公里價值", f"${km_price:.1f} 元 / km")
+    # 計算預估補貼
+    est_bonus = est_minutes * min_rate
+    est_total = price + est_bonus
+    
+    st.info(f"💡 **接單預估補貼**：依系統預估 {est_minutes} 分鐘計算，約可多拿 **${est_bonus:.1f}** 元（預估總收入：**${est_total:.1f}** 元）")
+    
+    st.divider()
+    st.subheader("⏱️ 實際完成時間試算")
+    
+    # 手動填寫/調整實際花費時間
+    actual_minutes = st.number_input(
+        "輸入實際完成時間（分鐘）：", 
+        min_value=1, 
+        max_value=180, 
+        value=est_minutes if est_minutes > 0 else 20,
+        step=1
+    )
+    
+    actual_bonus = actual_minutes * min_rate
+    actual_total = price + actual_bonus
+    actual_per_km = actual_total / distance if distance > 0 else 0
+    
+    # 顯示實際計算結果
+    res_col1, res_col2, res_col3 = st.columns(3)
+    res_col1.metric("實際時間補貼", f"+${actual_bonus:.1f}")
+    res_col2.metric("最終預計總入帳", f"${actual_total:.1f}")
+    res_col3.metric("實際 CP 值", f"${actual_per_km:.1f} / km")
 
-    if real_hourly >= 300 and km_price >= 22:
-        st.success("✅ **秒接（優質加成單）**")
-    elif real_hourly >= 250 and km_price >= 18:
-        st.warning("⚠️ **離峰可考慮（保底單）**")
-    else:
-        st.error("❌ **果斷拉掉（地雷單）**")
+    if actual_minutes > est_minutes and est_minutes > 0:
+        extra_time = actual_minutes - est_minutes
+        extra_pay = extra_time * min_rate
+        st.success(f"🎉 因為多花了 {extra_time} 分鐘（如等餐/塞車），時間補貼增加了 **+${extra_pay:.1f}** 元！")
