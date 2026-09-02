@@ -27,7 +27,8 @@ uploaded_file = st.file_uploader("上傳 Uber Eats 接單截圖", type=["png", "
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="已上傳截圖", use_column_width=True)
+    # 已修正為 use_container_width
+    st.image(image, caption="已上傳截圖", use_container_width=True)
     
     # 轉為 numpy 陣列進行 OCR 辨識
     img_np = np.array(image)
