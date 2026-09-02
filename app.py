@@ -12,58 +12,24 @@ st.set_page_config(
     layout="centered"
 )
 
-# 針對手機螢幕與派單卡動態高度進行 CSS 優化
 st.markdown("""
 <style>
     .stApp { background-color: #030712; color: #f3f4f6; }
-    
     .cyber-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
-        border: 1px solid #06b6d4; 
-        padding: 16px; 
-        border-radius: 12px; 
-        text-align: center; 
-        margin-bottom: 16px;
+        border: 1px solid #06b6d4; padding: 16px; border-radius: 12px; text-align: center; margin-bottom: 16px;
         box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
     }
     .cyber-header h1 {
         background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
-        -webkit-background-clip: text; 
-        -webkit-text-fill-color: transparent; 
-        font-size: 22px; 
-        font-weight: 900; 
-        margin: 0;
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 22px; font-weight: 900; margin: 0;
     }
-    
-    [data-testid="stMetric"] { 
-        background: #0f172a; 
-        border: 1px solid #1e293b; 
-        border-radius: 12px; 
-        padding: 12px 16px; 
-    }
-    
-    /* 響應式排版：防止手機端因欄位過多導致擠壓跑版 */
+    [data-testid="stMetric"] { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 12px 16px; }
     @media (max-width: 768px) {
-        [data-testid="column"] {
-            width: 100% !important;
-            flex: 1 1 100% !important;
-            min-width: 100% !important;
-            margin-bottom: 8px;
-        }
-        .cyber-header h1 {
-            font-size: 18px;
-        }
+        [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; margin-bottom: 8px; }
+        .cyber-header h1 { font-size: 18px; }
     }
-    
-    .stButton > button { 
-        background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%); 
-        color: white; 
-        border: 1px solid #38bdf8; 
-        border-radius: 12px; 
-        padding: 12px 24px; 
-        font-weight: bold; 
-        width: 100%;
-    }
+    .stButton > button { background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%); color: white; border: 1px solid #38bdf8; border-radius: 12px; padding: 12px 24px; font-weight: bold; width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,8 +71,8 @@ def load_ocr():
 
 ocr = load_ocr()
 
-BASE_PRICE = 45.0       # 工會專法底價 $45
-PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元 ($245 / 60分)
+BASE_PRICE = 45.0       # 底價 $45
+PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
 
 uploaded_file = st.file_uploader("上傳 Uber Eats 行程詳細資訊截圖", type=["png", "jpg", "jpeg"])
 
@@ -119,26 +85,35 @@ if uploaded_file is not None:
     lines_text = [item[1] for item in result_full] if result_full else []
     full_text = " ".join(lines_text)
 
-    # 1. 辨識金額 (抓取含 $ 的數字)
+    # 1. 辨識金額
     price_match = re.search(r'\$\s*(\d+(\.\d+)?)', full_text)
     total_price = float(price_match.group(1)) if price_match else 0.0
     
-    # 2. 辨識時間 (抓取含「分」的數字)
+    # 2. 辨識時間
     time_match = re.search(r'(\d+)\s*分', full_text)
     total_est_min = int(time_match.group(1)) if time_match else 30
 
-    # 3. 辨識單數 (避開派單卡高度影響，改用文字特徵比對)
-    # 優先抓取頂部「外送 (3)」或「(3)」的格式
-    order_match = re.search(r'外送\s*[\(（](\d+)[\)）]', full_text)
-    if not order_match:
-        order_match = re.search(r'[\(（](\d+)[\)）]', full_text)
+    # 3. 多重相容單數辨識（包含路途中夾單標籤）
+    detected_orders = 1
+    
+    # 邏輯 A：標準「外送 (3)」或「(3)」
+    order_match = re.search(r'外送\s*[\(（](\d+)[\)）]', full_text) or re.search(r'[\(（](\d+)[\)）]', full_text)
+    
+    # 邏輯 B：路途中夾單特徵標籤「+1」、「+2」、「+1 筆行程」
+    plus_match = re.search(r'\+\s*(\d+)', full_text)
     
     if order_match:
         detected_orders = int(order_match.group(1))
+    elif plus_match:
+        # 如果出現 +1，表示在原本基礎上記得多加單數（例如原單 1 + 1 = 2 單）
+        detected_orders = 1 + int(plus_match.group(1))
     else:
-        # 後備機制：計算文字中出現的店家或地址關鍵字數量推算單數
-        stores_count = len(re.findall(r'店|堂|門市|胖老爹|肯德基|SUKIYA|家', full_text))
-        detected_orders = max(1, min(stores_count, 4)) if stores_count > 0 else 1
+        # 邏輯 C：計算店家/地址特徵出現次數
+        location_keywords = len(re.findall(r'店|堂|門市|巷|樓|段', full_text))
+        if location_keywords >= 4:
+            detected_orders = 3
+        elif location_keywords >= 2:
+            detected_orders = 2
 
     st.divider()
     st.subheader("⏱️ 行程時間與單數確認")
