@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# 賽博朋克 / 鋼鐵人 HUD 風格 CSS
+# 賽博朋克 / 鋼鐵人 HUD 風格 CSS (全面消滅白色區塊)
 st.markdown("""
 <style>
     /* 全域背景：極致深黑 */
@@ -48,7 +48,7 @@ st.markdown("""
         letter-spacing: 1px;
     }
 
-    /* Metric 卡片：帶有霓虹光暈 (Glow Effect) */
+    /* Metric 卡片：帶有霓虹光暈 */
     [data-testid="stMetric"] {
         background: #0f172a;
         border: 1px solid #1e293b;
@@ -96,12 +96,37 @@ st.markdown("""
         transform: scale(1.02);
     }
 
-    /* 上傳區塊發光框 */
+    /* 強制覆蓋 Streamlit 上傳元件的白色底色 */
     [data-testid="stFileUploader"] {
-        background-color: #0f172a;
-        border: 1px stroke #334155;
-        border-radius: 12px;
-        padding: 10px;
+        background-color: transparent !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background-color: #0f172a !important;
+        border: 2px dashed #38bdf8 !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease;
+    }
+
+    [data-testid="stFileUploaderDropzone"]:hover {
+        background-color: #1e293b !important;
+        border-color: #818cf8 !important;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+    }
+
+    /* 修正上傳按鈕與內文文字顏色 */
+    [data-testid="stFileUploaderDropzone"] button {
+        background-color: #1e293b !important;
+        color: #38bdf8 !important;
+        border: 1px solid #38bdf8 !important;
+        border-radius: 8px !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] div, 
+    [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stFileUploaderDropzone"] small,
+    [data-testid="stFileUploaderDropzone"] p {
+        color: #cbd5e1 !important;
     }
 </style>
 """, unsafe_allow_html=True)
