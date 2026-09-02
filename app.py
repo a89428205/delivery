@@ -62,10 +62,20 @@ if uploaded_file is not None:
     result, _ = ocr(img_np)
     full_text = "\n".join([line[1] for line in result]) if result else ""
     
-    # 1. 自動辨識單數 (例如: 外送 (2) 或 外送 (3))
-    count_match = re.search(r'外送\s*\(\s*(\d+)\s*\)', full_text)
-    auto_count = int(count_match.group(1)) if count_match else 1
-    
+    # 1. 增強版單數辨識 (支援暗黑模式與文字比對)
+    auto_count = 1
+    # 嘗試抓取 外送 (X) 或 外送 X 或 (X)
+    count_match = re.search(r'外送\s*[\(（\s]*(\d+)[\)）\s]*', full_text)
+    if count_match:
+        auto_count = int(count_match.group(1))
+    else:
+        # 備用邏輯：計算文字中「台灣臺北市」或「店/門市」重複出現的次數
+        address_count = len(re.findall(r'台灣臺北市|市|區', full_text))
+        if address_count >= 3:
+            auto_count = 3
+        elif address_count == 2:
+            auto_count = 2
+
     # 2. 辨識金額
     price_match = re.search(r'\$\s*(\d+)', full_text)
     price1 = float(price_match.group(1)) if price_match else 0.0
@@ -78,15 +88,24 @@ if uploaded_file is not None:
     dist_match = re.search(r'([\d\.]+)\s*公里', full_text)
     dist1 = float(dist_match.group(1)) if dist_match else 0.0
 
+    st.divider()
+    st.subheader("📊 辨識與統計結果")
+    
+    # 允許手動快速微調單數
+    final_count = st.selectbox(
+        "🎯 辨識單數（若辨識有誤可直接修改）：", 
+        options=[1, 2, 3, 4, 5], 
+        index=min(max(auto_count - 1, 0), 4)
+    )
+
     extra_price, extra_min, extra_dist = 0.0, 0, 0.0
-    final_count = auto_count
 
     if mode == "半路多次夾單（手動/多次累加）":
         st.divider()
-        st.subheader("➕ 半路夾單（第二單/第三單等）補充輸入")
+        st.subheader("➕ 半路夾單（追加單）補充輸入")
         
-        extra_orders = st.number_input("額外夾單數量（如夾兩單填 2）", min_value=1, max_value=5, value=1, step=1)
-        final_count = auto_count + extra_orders
+        extra_orders = st.number_input("額外夾單數量", min_value=1, max_value=5, value=1, step=1)
+        final_count += extra_orders
         
         col_a, col_b, col_c = st.columns(3)
         extra_price = col_a.number_input("夾單累加總金額 ($)", value=45.0 * extra_orders, step=5.0)
@@ -97,11 +116,6 @@ if uploaded_file is not None:
     total_est_min = est_min1 + extra_min
     total_dist = dist1 + extra_dist
 
-    st.divider()
-    st.subheader("📊 辨識與統計結果")
-    
-    st.success(f"🎯 **辨識成功**：此行程共計 **{final_count}** 張單（{'單單' if final_count==1 else f'{final_count} 疊單'}）")
-    
     col1, col2, col3 = st.columns(3)
     col1.metric("顯示總金額", f"${total_price:.0f}")
     col2.metric("預估總時間", f"{total_est_min} 分鐘")
