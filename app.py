@@ -12,22 +12,19 @@ st.set_page_config(
     layout="centered"
 )
 
-# 賽博朋克 / 鋼鐵人 HUD 風格 CSS (全面消滅白色區塊)
+# 賽博朋克 / 鋼鐵人 HUD 風格 CSS
 st.markdown("""
 <style>
-    /* 全域背景：極致深黑 */
     .stApp {
         background-color: #030712;
         color: #f3f4f6;
     }
     
-    /* 側邊欄樣式 */
     [data-testid="stSidebar"] {
         background-color: #0b0f19;
         border-right: 1px solid #1e293b;
     }
 
-    /* 頂部賽博酷炫 Banner */
     .cyber-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
         border: 1px solid #06b6d4;
@@ -48,7 +45,6 @@ st.markdown("""
         letter-spacing: 1px;
     }
 
-    /* Metric 卡片：帶有霓虹光暈 */
     [data-testid="stMetric"] {
         background: #0f172a;
         border: 1px solid #1e293b;
@@ -77,7 +73,6 @@ st.markdown("""
         text-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
     }
 
-    /* 按鈕美化：電光漸層 */
     .stButton > button {
         background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%);
         color: white;
@@ -96,7 +91,6 @@ st.markdown("""
         transform: scale(1.02);
     }
 
-    /* 強制覆蓋 Streamlit 上傳元件的白色底色 */
     [data-testid="stFileUploader"] {
         background-color: transparent !important;
     }
@@ -114,7 +108,6 @@ st.markdown("""
         box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
     }
 
-    /* 修正上傳按鈕與內文文字顏色 */
     [data-testid="stFileUploaderDropzone"] button {
         background-color: #1e293b !important;
         color: #38bdf8 !important;
@@ -186,39 +179,36 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已讀取截圖", use_container_width=True)
     
+    # 判斷整張圖的全圖文字
     img_np = np.array(image)
-    result, _ = ocr(img_np)
+    result_full, _ = ocr(img_np)
+    full_lines = [line[1] for line in result_full] if result_full else []
+    full_text = " ".join(full_lines)
     
-    lines = [line[1] for line in result] if result else []
-    full_text = "\n".join(lines)
-    
-    # === 強化版單數辨識邏輯 ===
+    # 專門裁切圖片上方 35%（單數資訊通常出現在最頂端標題區）
+    w, h = image.size
+    top_crop = image.crop((0, 0, w, int(h * 0.35)))
+    result_top, _ = ocr(np.array(top_crop))
+    top_lines = [line[1] for line in result_top] if result_top else []
+    top_text = " ".join(top_lines)
+
+    # === 精準單數判斷機制 ===
     auto_count = 1
     
-    # 優先規則 1：尋找 "外送 (X)" 或 "外送(X)" 或 "外送 X"
-    match_bracket = re.search(r'外送\s*[\(（\s]*(\d+)[\)）\s]*', full_text)
-    
-    # 優先規則 2：尋找 "X 筆外送" 或 "X 個外送"
-    match_prefix = re.search(r'(\d+)\s*(?:筆|個)?\s*外送', full_text)
-    
-    # 優先規則 3：計算畫面中出現「取貨」或「商家」或「送達」的頻率
-    pickup_count = len(re.findall(r'取貨|取餐|商家', full_text))
-    drop_count = len(re.findall(r'送達|下客|顧客', full_text))
+    # 1. 在頂部區域尋找 (X) 或 ( X ) 相關特徵
+    top_bracket = re.search(r'[\(（\s]+([2-5])[\)）\s]+', top_text)
+    # 2. 尋找「外送」前後緊鄰的數字
+    delivery_near_num = re.search(r'外送.*?([2-5])|([2-5]).*?外送', top_text)
+    # 3. 全圖尋找 "X 筆" 或 "X 個"
+    items_count = re.search(r'([2-5])\s*(?:筆|個|份)', full_text)
 
-    if match_bracket:
-        auto_count = int(match_bracket.group(1))
-    elif match_prefix and int(match_prefix.group(1)) <= 5:
-        auto_count = int(match_prefix.group(1))
-    elif pickup_count > 1 or drop_count > 1:
-        auto_count = max(pickup_count, drop_count)
-    else:
-        # 備用判斷：如果地址包含多個區/路，算疊單
-        road_count = len(re.findall(r'[路街巷段區]', full_text))
-        if road_count >= 4:
-            auto_count = 2
-
-    # 限制合理單數範圍 (1~5)
-    auto_count = max(1, min(auto_count, 5))
+    if top_bracket:
+        auto_count = int(top_bracket.group(1))
+    elif delivery_near_num:
+        num = delivery_near_num.group(1) or delivery_near_num.group(2)
+        auto_count = int(num)
+    elif items_count:
+        auto_count = int(items_count.group(1))
 
     # 金額、時間、里程辨識
     price_match = re.search(r'\$\s*(\d+)', full_text)
