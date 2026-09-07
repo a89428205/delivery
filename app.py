@@ -104,12 +104,13 @@ if "雙單" in order_type:
 elif "三單" in order_type:
     num_orders = 3
 
-# 初始化 session state 確保元件有預設值
 for i in range(3):
     if f"num_p_{i}" not in st.session_state:
         st.session_state[f"num_p_{i}"] = 49.0 if i == 0 else 40.0
     if f"num_d_{i}" not in st.session_state:
         st.session_state[f"num_d_{i}"] = 15.0 if i == 0 else 20.0
+    if f"time_{i}" not in st.session_state:
+        st.session_state[f"time_{i}"] = datetime.now().strftime("%H:%M")
 
 orders_data = []
 st.markdown("---")
@@ -135,12 +136,12 @@ for i in range(num_orders):
             if p_m:
                 val_p = float(p_m.group(1))
                 if st.session_state[f"num_p_{i}"] != val_p:
-                    st.session_state[f"num_p_{i}"] = val_p  # 直接修改元件 key 的狀態
+                    st.session_state[f"num_p_{i}"] = val_p
                     changed = True
             if t_m:
                 val_d = float(t_m.group(1))
                 if st.session_state[f"num_d_{i}"] != val_d:
-                    st.session_state[f"num_d_{i}"] = val_d  # 直接修改元件 key 的狀態
+                    st.session_state[f"num_d_{i}"] = val_d
                     changed = True
                     
             if changed:
@@ -148,11 +149,13 @@ for i in range(num_orders):
                 st.rerun()
 
     c1, c2 = st.columns(2)
-    # 直接使用帶有 key 的 number_input，它會自動與 session_state 雙向同步
     final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"num_p_{i}")
     final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", step=1.0, key=f"num_d_{i}")
     
-    orders_data.append({"price": final_p, "duration": final_d})
+    # 新增：實際送完時間輸入欄位
+    finish_time = st.text_input(f"{label_name} 實際送完時間 (例如 14:30)", key=f"time_{i}")
+    
+    orders_data.append({"price": final_p, "duration": final_d, "finish_time": finish_time})
     st.markdown("")
 
 total_platform_price = sum([o["price"] for o in orders_data])
@@ -171,7 +174,8 @@ if shortfall > 0:
 else:
     r3.metric("本趟需補足金額", "$0.0", delta="已達標")
 
-struct_desc = " + ".join([f"{o['duration']}分(${o['price']})" for o in orders_data])
+# 組合包含完成時間的詳細描述
+struct_desc = " | ".join([f"{label_name}({o['finish_time']}完): {o['duration']}分/${o['price']}" for i, o in enumerate(orders_data) for label_name in [f"A單" if i == 0 else ("B單" if i == 1 else "C單")]])
 
 if st.button("💾 記錄此趟勞動部標準差額"):
     save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
