@@ -85,7 +85,12 @@ def load_ocr():
     from rapidocr_onnxruntime import RapidOCR
     return RapidOCR()
 
-ocr = load_ocr()
+try:
+    ocr = load_ocr()
+    ocr_loaded = True
+except Exception as e:
+    ocr_loaded = False
+    ocr_err = str(e)
 
 BASE_PRICE = 45.0       
 PER_MINUTE_RATE = 4.1   
@@ -99,11 +104,12 @@ if "雙單" in order_type:
 elif "三單" in order_type:
     num_orders = 3
 
+# 初始化 session state 確保元件有預設值
 for i in range(3):
-    if f"p_{i}" not in st.session_state:
-        st.session_state[f"p_{i}"] = 49.0 if i == 0 else 40.0
-    if f"d_{i}" not in st.session_state:
-        st.session_state[f"d_{i}"] = 15.0 if i == 0 else 20.0
+    if f"num_p_{i}" not in st.session_state:
+        st.session_state[f"num_p_{i}"] = 49.0 if i == 0 else 40.0
+    if f"num_d_{i}" not in st.session_state:
+        st.session_state[f"num_d_{i}"] = 15.0 if i == 0 else 20.0
 
 orders_data = []
 st.markdown("---")
@@ -112,39 +118,39 @@ for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    # 取消圖片預覽顯示，只留上傳按鈕，避免畫面被佔滿
     up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
     
     if up_file is not None:
-        img = Image.open(up_file)
-        res, _ = ocr(np.array(img))
-        txt = " ".join([item[1] for item in res]) if res else ""
-        
-        p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
-        t_m = re.search(r'(\d+)\s*分', txt)
-        
-        changed = False
-        if p_m:
-            val_p = float(p_m.group(1))
-            if st.session_state[f"p_{i}"] != val_p:
-                st.session_state[f"p_{i}"] = val_p
-                changed = True
-        if t_m:
-            val_d = float(t_m.group(1))
-            if st.session_state[f"d_{i}"] != val_d:
-                st.session_state[f"d_{i}"] = val_d
-                changed = True
-                
-        if changed:
-            st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'p_{i}']}，時間 {st.session_state[f'd_{i}']} 分")
-            st.rerun()
+        if not ocr_loaded:
+            st.error(f"❌ OCR 模組載入失敗: {ocr_err}")
+        else:
+            img = Image.open(up_file)
+            res, _ = ocr(np.array(img))
+            txt = " ".join([item[1] for item in res]) if res else ""
+            
+            p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
+            t_m = re.search(r'(\d+)\s*分', txt)
+            
+            changed = False
+            if p_m:
+                val_p = float(p_m.group(1))
+                if st.session_state[f"num_p_{i}"] != val_p:
+                    st.session_state[f"num_p_{i}"] = val_p  # 直接修改元件 key 的狀態
+                    changed = True
+            if t_m:
+                val_d = float(t_m.group(1))
+                if st.session_state[f"num_d_{i}"] != val_d:
+                    st.session_state[f"num_d_{i}"] = val_d  # 直接修改元件 key 的狀態
+                    changed = True
+                    
+            if changed:
+                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'num_p_{i}']}，時間 {st.session_state[f'num_d_{i}']} 分")
+                st.rerun()
 
     c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", value=float(st.session_state[f"p_{i}"]), step=1.0, key=f"num_p_{i}")
-    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", value=float(st.session_state[f"d_{i}"]), step=1.0, key=f"num_d_{i}")
-    
-    st.session_state[f"p_{i}"] = final_p
-    st.session_state[f"d_{i}"] = final_d
+    # 直接使用帶有 key 的 number_input，它會自動與 session_state 雙向同步
+    final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"num_p_{i}")
+    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", step=1.0, key=f"num_d_{i}")
     
     orders_data.append({"price": final_p, "duration": final_d})
     st.markdown("")
