@@ -109,7 +109,6 @@ PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
 
 uploaded_file = st.file_uploader("1️⃣ 上傳主要行程 / 初始接單截圖", type=["png", "jpg", "jpeg"])
 
-# 改進預設值，避免未成功辨識時死守舊的 92/20.75
 default_price = 101.0
 default_est_min = 25.0
 detected_orders = 1
@@ -243,7 +242,7 @@ if not records_df.empty:
     stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
 
     with st.expander("📋 查看詳細獨立單單差額明細"):
-        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"]], use_container_wood=True if "use_container_wood" in locals() else use_container_width=True) # type: ignore
+        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"]], use_container_width=True)
         if st.button("🗑️ 清空所有歷史紀錄"):
             if os.path.exists(LOG_FILE):
                 os.remove(LOG_FILE)
