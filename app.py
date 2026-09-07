@@ -7,7 +7,7 @@ import io
 import json
 import base64
 
-# 金鑰設定
+# 你的 AQ. 權杖
 MY_API_KEY = "AQ.Ab8RN6L7gV8SG44nLKk2qQu4gv_8X6DVH_skYKfsBLcJ7mFcg"
 
 st.set_page_config(
@@ -58,8 +58,17 @@ if uploaded_file is not None:
             image.save(buffered, format="JPEG")
             img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
             
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={MY_API_KEY}"
-            headers = {'Content-Type': 'application/json'}
+            # 判斷是傳統 API 金鑰還是 OAuth 權杖，採用對應的傳遞方式
+            if MY_API_KEY.startswith("AQ."):
+                url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {MY_API_KEY}'
+                }
+            else:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={MY_API_KEY}"
+                headers = {'Content-Type': 'application/json'}
+
             payload = {
                 "contents": [{
                     "parts": [
