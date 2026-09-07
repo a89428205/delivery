@@ -1,136 +1,177 @@
 import streamlit as st
+from PIL import Image
+import numpy as np
+import re
 import pandas as pd
 from datetime import datetime
-from PIL import Image
-import pytesseract
-import re
+import os
 
 st.set_page_config(
-    page_title="外送專法 獨立單計價補足金額追蹤器",
-    page_icon="🛵",
+    page_title="🛵 勞動部認定標準 疊單補足金額追蹤器", 
+    page_icon="⚖️", 
     layout="centered"
 )
 
 st.markdown("""
 <style>
-.stApp { background-color: #030712; color: #f3f4f6; }
-.cyber-header {
-    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
-    border: 1px solid #10b981;
-    padding: 16px;
-    border-radius: 12px;
-    text-align: center;
-    margin-bottom: 16px;
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
-}
+    .stApp { background-color: #030712; color: #f3f4f6; }
+    
+    .cyber-header {
+        background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #030712 100%);
+        border: 1px solid #10b981; 
+        padding: 16px; 
+        border-radius: 12px; 
+        text-align: center; 
+        margin-bottom: 16px;
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+    .cyber-header h1 {
+        background: linear-gradient(90deg, #34d399, #10b981, #059669);
+        -webkit-background-clip: text; 
+        -webkit-text-fill-color: transparent; 
+        font-size: 20px; 
+        font-weight: 900; 
+        margin: 0;
+    }
+    
+    [data-testid="stMetric"] { 
+        background: #022c22; 
+        border: 1px solid #047857; 
+        border-radius: 12px; 
+        padding: 12px 16px; 
+    }
+    
+    .stButton > button { 
+        background: linear-gradient(135deg, #059669 0%, #10b981 100%); 
+        color: white; 
+        border: 1px solid #34d399; 
+        border-radius: 12px; 
+        padding: 12px 24px; 
+        font-weight: bold; 
+        width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="cyber-header">
-    <h2 style="color: #10b981; margin:0;">🛵 外送專法獨立單計價補足金額追蹤器</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">截圖智慧解析 • 支援主行程與多張夾單</p>
+    <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 核心原則：重疊時間分別計入各筆訂單，依每筆實際服務時間獨立計算 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
-if 'records' not in st.session_state:
-    st.session_state.records = []
+LOG_FILE = "delivery_labor_standard.csv"
 
-if 'current_batch' not in st.session_state:
-    st.session_state.current_batch = [
-        {"amount": 49.0, "duration": 13.0}
-    ]
+def load_records():
+    if os.path.exists(LOG_FILE):
+        return pd.read_csv(LOG_FILE)
+    else:
+        return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-uploaded_file = st.file_uploader("📷 上傳外送截圖（自動秒讀金額與時間）", type=["png", "jpg", "jpeg"])
+def save_record(struct_str, total_price, total_target, shortfall, note="疊單計算"):
+    df = load_records()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_row = pd.DataFrame([{
+        "日期時間": now_str,
+        "訂單結構": struct_str,
+        "平台總給予": total_price,
+        "法定總門檻": total_target,
+        "需補足總額": shortfall,
+        "備註": note
+    }])
+    df = pd.concat([df, new_row], ignore_index=True)
+    df.to_csv(LOG_FILE, index=False)
+    return df
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="已上傳的截圖預覽")
-    
-    with st.spinner("⚡ 正在解析截圖中的金額與時間..."):
-        try:
-            # 轉換為灰階以提高辨識率
-            gray_img = image.convert('L')
-            text = pytesseract.image_to_string(gray_img)
-            
-            # 尋找金額（例如 $49 或 49）
-            amount_match = re.search(r'\$(\d+(?:\.\d+)?)', text)
-            if not amount_match:
-                amount_match = re.search(r'(?:金額|預估|報酬|總計)[\s:]*(\d+)', text)
-                
-            # 尋找時間（例如 13 分鐘）
-            duration_match = re.search(r'(\d+)\s*(?:分鐘|分|min)', text, re.IGNORECASE)
-            
-            parsed_amt = float(amount_match.group(1)) if amount_match else 49.0
-            parsed_dur = float(duration_match.group(1)) if duration_match else 13.0
-            
-            st.session_state.current_batch[0]["amount"] = parsed_amt
-            st.session_state.current_batch[0]["duration"] = parsed_dur
-            st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
-            st.rerun()
-        except Exception as e:
-            st.info("💡 提示：已載入圖片，請直接在下方確認或微調金額與時間！")
+@st.cache_resource
+def load_ocr():
+    from rapidocr_onnxruntime import RapidOCR
+    return RapidOCR()
 
-st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
+ocr = load_ocr()
 
-for i, item in enumerate(st.session_state.current_batch):
-    cols = st.columns([3, 3, 1])
-    with cols[0]:
-        st.session_state.current_batch[i]["amount"] = st.number_input(
-            f"第 {i+1} 張單金額 ($)", value=float(item["amount"]), step=1.0, key=f"amt_{i}"
-        )
-    with cols[1]:
-        st.session_state.current_batch[i]["duration"] = st.number_input(
-            f"第 {i+1} 張單時間 (分)", value=float(item["duration"]), step=1.0, key=f"dur_{i}"
-        )
-    with cols[2]:
-        st.write("")
-        st.write("")
-        if len(st.session_state.current_batch) > 1:
-            if st.button("🗑️", key=f"del_{i}"):
-                st.session_state.current_batch.pop(i)
-                st.rerun()
+BASE_PRICE = 45.0       # 單筆底價保障
+PER_MINUTE_RATE = 4.1   # 每分鐘大約 4.1 元 (245 ÷ 60)
 
-if st.button("➕ 增加一張夾單/疊單"):
-    st.session_state.current_batch.append({"amount": 80.0, "duration": 10.0})
-    st.rerun()
+st.subheader("📦 本趟行程訂單設定")
+order_type = st.radio("選擇本趟訂單類型", ["單主單（無疊單）", "雙單疊單（A單 + B單）", "三單疊單（A + B + C單）"], horizontal=True)
 
-total_amount = sum([item["amount"] for item in st.session_state.current_batch])
-total_duration = sum([item["duration"] for item in st.session_state.current_batch])
+# 根據選擇初始化訂單數量
+num_orders = 1
+if "雙單" in order_type:
+    num_orders = 2
+elif "三單" in order_type:
+    num_orders = 3
 
-threshold = max(45.0, total_duration * 4.1)
-diff = threshold - total_amount
-shortfall = max(0.0, diff)
-
+orders_data = []
 st.markdown("---")
-st.markdown("### 📊 本趟計算結果")
-res_col1, res_col2, res_col3 = st.columns(3)
 
-with res_col1:
-    st.metric(label="平台實際總給予", value=f"${total_amount:.2f}")
-with res_col2:
-    st.metric(label="專法獨立總門檻", value=f"${threshold:.2f}")
-with res_col3:
-    st.metric(label="總需補足金額", value=f"${shortfall:.2f}", delta=f"-${shortfall:.2f}" if shortfall > 0 else "已達標")
-
-if st.button("📥 將此趟記錄到歷史", type="primary"):
-    new_record = {
-        "時間": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "單數": f"{len(st.session_state.current_batch)} 張單",
-        "總金額": total_amount,
-        "總時間(分)": total_duration,
-        "獨立門檻": threshold,
-        "補足金額": shortfall
-    }
-    st.session_state.records.append(new_record)
-    st.success("✅ 行程記錄已成功累積！")
-    st.session_state.current_batch = [{"amount": 49.0, "duration": 13.0}]
-    st.rerun()
-
-if st.session_state.records:
-    st.markdown("### 📋 歷史記錄")
-    df = pd.DataFrame(st.session_state.records)
-    st.dataframe(df, use_container_width=True)
+for i in range(num_orders):
+    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
+    st.markdown(f"##### 🛵 {label_name} 數據")
     
-    total_shortfall = df["補足金額"].sum()
-    st.info(f"💰 累計總需補足金額：**${total_shortfall:.2f}**")
+    col_up, col_man = st.tabs([f"📷 上傳 {label_name} 截圖", f"✍️ 手動輸入 {label_name}"])
+    
+    p_val, d_val = (49.0 if i==0 else 40.0), (20.0 if i==0 else 30.0)
+    
+    with col_up:
+        up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
+        if up_file is not None:
+            img = Image.open(up_file)
+            st.image(img, caption=f"已讀取 {label_name}", use_container_width=True)
+            res, _ = ocr(np.array(img))
+            txt = " ".join([item[1] for item in res]) if res else ""
+            
+            p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
+            t_m = re.search(r'(\d+)\s*分', txt)
+            if p_m: p_val = float(p_m.group(1))
+            if t_m: d_val = float(t_m.group(1))
+            st.success(f"⚡ 自動辨識成功：金額 ${p_val}，時間 {d_val} 分")
+            
+    with col_man:
+        pass # 下方統一用欄位微調最穩妥
+        
+    c1, c2 = st.columns(2)
+    final_p = c1.number_input(f"{label_name} 金額 ($)", value=float(p_val), step=1.0, key=f"p_{i}")
+    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", value=float(d_val), step=1.0, key=f"d_{i}")
+    
+    orders_data.append({"price": final_p, "duration": final_d})
+    st.markdown("")
+
+# 依照勞動部標準：每張單各自計算門檻（時間 × 4.1 與 45 擇高），然後加總
+total_platform_price = sum([o["price"] for o in orders_data])
+total_labor_target = sum([max(BASE_PRICE, o["duration"] * PER_MINUTE_RATE) for o in orders_data])
+shortfall = max(0.0, total_labor_target - total_platform_price)
+
+st.divider()
+st.markdown("### 📊 勞動部標準結算結果")
+r1, r2, r3 = st.columns(3)
+
+r1.metric("勞動部認定總門檻", f"${total_labor_target:.1f}")
+r2.metric("平台實際總給予", f"${total_platform_price:.1f}")
+
+if shortfall > 0:
+    r3.metric("本趟需補足金額", f"${shortfall:.1f}", delta=f"-${shortfall:.1f}", delta_color="inverse")
+else:
+    r3.metric("本趟需補足金額", "$0.0", delta="已達標")
+
+struct_desc = " + ".join([f"{o['duration']}分(${o['price']})" for o in orders_data])
+
+if st.button("💾 記錄此趟勞動部標準差額"):
+    save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
+    st.success("✅ 已成功寫入歷史紀錄！")
+
+# 歷史紀錄
+st.divider()
+st.subheader("📋 歷史紀錄總覽")
+df = load_records()
+if not df.empty:
+    total_sum = df["需補足總額"].sum()
+    st.metric("累計應向平台追討總額", f"${total_sum:.1f}")
+    st.dataframe(df, use_container_width=True)
+    if st.button("🗑️ 清空歷史紀錄"):
+        if os.path.exists(LOG_FILE):
+            os.remove(LOG_FILE)
+            st.rerun()
+else:
+    st.info("目前尚無紀錄，請於上方輸入或上傳疊單截圖開始計算！")
