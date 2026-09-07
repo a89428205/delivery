@@ -50,8 +50,8 @@ if not OCR_AVAILABLE:
 
 uploaded_file = st.file_uploader("已讀取主行程截圖", type=["png", "jpg", "jpeg"])
 
-init_amount = 101.00
-duration_mins = 25.00
+init_amount = 227.00
+duration_mins = 29.00
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
@@ -64,17 +64,17 @@ if uploaded_file is not None:
             
             if result:
                 full_text = " ".join([line[1] for line in result])
-                st.write("🔍 **OCR 辨識結果文字**：", full_text)
                 
-                amounts = re.findall(r'\$?\s*([0-9]+(?:\.[0-9]+)?)', full_text)
-                if amounts:
-                    try:
-                        filtered_amounts = [float(a) for a in amounts if float(a) > 20]
-                        if filtered_amounts:
-                            init_amount = filtered_amounts[0]
-                    except:
-                        pass
+                # 優先抓取帶有 $ 符號後面的數字（例如 $227）
+                price_match = re.search(r'\$\s*([0-9]+(?:\.[0-9]+)?)', full_text)
+                if price_match:
+                    init_amount = float(price_match.group(1))
+                else:
+                    amounts = re.findall(r'([0-9]+(?:\.[0-9]+)?)\s*總計', full_text)
+                    if amounts:
+                        init_amount = float(amounts[0])
                 
+                # 時間抓取
                 time_match = re.search(r'([0-9]+)\s*分鐘', full_text)
                 if time_match:
                     duration_mins = float(time_match.group(1))
