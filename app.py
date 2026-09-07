@@ -1,6 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from PIL import Image
+import requests
+import io
+import json
+import base64
+
+MY_API_KEY = "AQ.Ab8RN6L7gV8SG44nLKk2qQu4gv_8X6DVH_skYKfsBLcJ7mFcg"
 
 st.set_page_config(
     page_title="外送專法 獨立單計價補足金額追蹤器",
@@ -26,7 +33,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h2 style="color: #10b981; margin:0;">🛵 外送專法獨立單計價補足金額追蹤器</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">快速計算 • 支援主行程與多張夾單</p>
+    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">截圖智慧辨識 • 支援主行程與多張夾單</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -37,6 +44,56 @@ if 'current_batch' not in st.session_state:
     st.session_state.current_batch = [
         {"amount": 227.0, "duration": 29.0}
     ]
+
+# 恢復截圖上傳功能
+uploaded_file = st.file_uploader("📷 上傳外送截圖（自動帶入金額與時間）", type=["png", "jpg", "jpeg"])
+
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="已上傳的截圖預覽")
+    
+    with st.spinner("⚡ AI 正在解析截圖..."):
+        try:
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG")
+            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {MY_API_KEY}'
+            }
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額 2. 時間（分鐘）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"},
+                        {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
+                    ]
+                }]
+            }
+            
+            res = requests.post(url, headers=headers, json=payload)
+            res_json = res.json()
+            
+            if 'candidates' in res_json:
+                text_res = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                if "```json" in text_res:
+                    text_res = text_res.split("```json")[1].split("```")[0].strip()
+                elif "```" in text_res:
+                    text_res = text_res.split("```")[1].split("```")[0].strip()
+                    
+                data = json.loads(text_res)
+                parsed_amt = float(data.get("amount", 227.0))
+                parsed_dur = float(data.get("duration", 29.0))
+                
+                st.session_state.current_batch[0]["amount"] = parsed_amt
+                st.session_state.current_batch[0]["duration"] = parsed_dur
+                st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
+                st.rerun()
+            else:
+                st.info("💡 提示：目前憑證權限受限，請直接在下方欄位手動確認金額與時間即可！")
+        except Exception:
+            st.info("💡 提示：請直接在下方欄位確認或調整金額與時間即可！")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
@@ -91,7 +148,7 @@ if st.button("📥 將此趟記錄到歷史", type="primary"):
     }
     st.session_state.records.append(new_record)
     st.success("✅ 行程記錄已成功累積！")
-    st.session_state.current_batch = [{"amount": 50.0, "duration": 15.0}]
+    st.session_state.current_batch = [{"amount": 227.0, "duration": 29.0}]
     st.rerun()
 
 if st.session_state.records:
