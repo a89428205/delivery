@@ -2,15 +2,21 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from PIL import Image
+import google.generativeai as genai
+
+# ==========================================
+# 💡 請把金鑰直接貼在下方引號內（最快最穩）
+# ==========================================
+MY_API_KEY = "AQ.Ab8RN6JdRzqLfOyWicsiEY6n1znm9FC0pzaTc1ia1lLy3NZOGA"
 
 try:
-    import google.generativeai as genai
+    genai.configure(api_key=MY_API_KEY)
     AI_AVAILABLE = True
 except Exception:
     AI_AVAILABLE = False
 
 st.set_page_config(
-    page_title="外送專法 獨立單單計價補足金額追蹤器",
+    page_title="外送專法 獨立單計價補足金額追蹤器",
     page_icon="🛵",
     layout="centered"
 )
@@ -51,14 +57,13 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的截圖預覽")
     
-    if AI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
+    if AI_AVAILABLE and MY_API_KEY != "你的實際API金鑰":
         with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
             try:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content([
                     image, 
-                    "請從這張外送截圖中萃取出兩個數字：1. 金額（數字即可，例如 49） 2. 時間（分鐘，數字即可，例如 13）。請嚴格依照格式回傳 JSON：{\"amount\": 數字, \"duration\": 數字}"
+                    "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額（例如圖中的 101） 2. 時間（分鐘，例如圖中的 25）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"
                 ])
                 import json
                 text_res = response.text.strip()
@@ -74,8 +79,11 @@ if uploaded_file is not None:
                 st.session_state.current_batch[0]["amount"] = parsed_amt
                 st.session_state.current_batch[0]["duration"] = parsed_dur
                 st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
+                st.rerun()
             except Exception as e:
-                st.warning("⚠️ 自動解析失敗，請直接從下方欄位確認或手動調整。")
+                st.error(f"⚠️ AI 解析錯誤：{e}")
+    else:
+        st.warning("⚠️ 請先在程式碼第 8 行填入你的 Gemini API 金鑰！")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
