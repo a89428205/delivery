@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 
 st.set_page_config(
-    page_title="⚡ 外送專法 單單需補足金額追蹤器", 
+    page_title="⚡ 外送專法 獨立單單計價補足金額追蹤器", 
     page_icon="⚖️", 
     layout="centered"
 )
@@ -18,15 +18,15 @@ st.markdown("""
     
     .cyber-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
-        border: 1px solid #06b6d4; 
+        border: 1px solid #10b981; 
         padding: 16px; 
         border-radius: 12px; 
         text-align: center; 
         margin-bottom: 16px;
-        box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
     }
     .cyber-header h1 {
-        background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
+        background: linear-gradient(90deg, #34d399, #38bdf8, #818cf8);
         -webkit-background-clip: text; 
         -webkit-text-fill-color: transparent; 
         font-size: 22px; 
@@ -52,9 +52,9 @@ st.markdown("""
     }
     
     .stButton > button { 
-        background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%); 
+        background: linear-gradient(135deg, #059669 0%, #0284c7 100%); 
         color: white; 
-        border: 1px solid #38bdf8; 
+        border: 1px solid #34d399; 
         border-radius: 12px; 
         padding: 12px 24px; 
         font-weight: bold; 
@@ -65,20 +65,20 @@ st.markdown("""
 
 st.markdown("""
 <div class="cyber-header">
-    <h1>⚖️ 專法「單單計價」需補足金額追蹤器</h1>
-    <p style="color:#94a3b8; font-size:12px; margin-top:6px; font-family:monospace;">[ 法定標準：單筆底價 $45 與 服務時間×$4.1 擇高對齊官方明細 ]</p>
+    <h1>⚖️ 專法「獨立單單計價」補足金額追蹤器</h1>
+    <p style="color:#94a3b8; font-size:12px; margin-top:6px; font-family:monospace;">[ 勞動部認定方式：疊單時間分別計入各筆訂單，各單獨立計算門檻後加總 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
-LOG_FILE = "delivery_records.csv"
+LOG_FILE = "delivery_records_independent.csv"
 
 def load_records():
     if os.path.exists(LOG_FILE):
         return pd.read_csv(LOG_FILE)
     else:
-        return pd.DataFrame(columns=["日期時間", "單數", "顯示金額", "實際時間", "專法門檻", "需補足金額", "備註"])
+        return pd.DataFrame(columns=["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"])
 
-def save_record(order_count, price, act_min, guarantee, shortfall, note="單單"):
+def save_record(order_count, price, act_min, guarantee, shortfall, note="獨立單單"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -86,7 +86,7 @@ def save_record(order_count, price, act_min, guarantee, shortfall, note="單單"
         "單數": order_count,
         "顯示金額": price,
         "實際時間": act_min,
-        "專法門檻": guarantee,
+        "專法獨立門檻": guarantee,
         "需補足金額": shortfall,
         "備註": note
     }])
@@ -200,19 +200,21 @@ for i in range(1, extra_count + 1):
     total_extra_orders += ex_orders
     total_extra_price += ex_price
 
-# ---------------- 依照官方明細邏輯：底價與時間換算擇高計算 ----------------
+# ---------------- 勞動部認定方式：獨立時間計價疊加計算 ----------------
 final_orders = main_orders + total_extra_orders
 final_price = main_price + total_extra_price
 actual_minutes = main_minutes
 
-statutory_target = max(final_orders * BASE_PRICE, actual_minutes * PER_MINUTE_RATE)
+# 每單各自獨立計算： max(底價 $45, 總行程時間 × $4.1)，再將所有單的門檻加總
+single_order_target = max(BASE_PRICE, actual_minutes * PER_MINUTE_RATE)
+statutory_target = single_order_target * final_orders
 shortfall = max(0.0, statutory_target - final_price)
 
 st.divider()
 st.markdown(f"#### 📌 最終加總：**共 {final_orders} 單** | 總實領 **${final_price:.1f}**")
 
 res_col1, res_col2, res_col3 = st.columns(3)
-res_col1.metric("專法法定保障門檻", f"${statutory_target:.1f}")
+res_col1.metric("專法獨立加總門檻", f"${statutory_target:.1f}")
 res_col2.metric("平台實際給予", f"${final_price:.1f}")
 
 if shortfall > 0:
@@ -221,9 +223,9 @@ else:
     res_col3.metric("本單需補足金額", "$0.0", delta="已達標")
 
 if st.button("💾 記錄此單需補足金額"):
-    note_str = f"{final_orders}單疊單" + (f" (含 {extra_count} 次夾單 +{total_extra_orders}單)" if total_extra_orders > 0 else "")
+    note_str = f"{final_orders}單獨立計價" + (f" (含 {extra_count} 次夾單 +{total_extra_orders}單)" if total_extra_orders > 0 else "")
     save_record(final_orders, final_price, actual_minutes, round(statutory_target, 1), round(shortfall, 1), note_str)
-    st.success("⚡ 已將此單需補足金額存入統計檔案！")
+    st.success("⚡ 已將此單獨立計價補足金額存入統計檔案！")
 
 # 歷史紀錄總覽
 st.divider()
@@ -239,8 +241,8 @@ if not records_df.empty:
     stat_col1.metric("已紀錄總筆數", f"{total_orders} 筆")
     stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
 
-    with st.expander("📋 查看詳細單單差額明細"):
-        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法門檻", "需補足金額", "備註"]], use_container_width=True)
+    with st.expander("📋 查看詳細獨立單單差額明細"):
+        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"]], use_container_width=True)
         if st.button("🗑️ 清空所有歷史紀錄"):
             if os.path.exists(LOG_FILE):
                 os.remove(LOG_FILE)
