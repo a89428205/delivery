@@ -3,11 +3,12 @@ import pandas as pd
 from datetime import datetime
 from PIL import Image
 import google.generativeai as genai
+import os
 
 # ==========================================
-# 💡 請把金鑰直接貼在下方引號內（最快最穩）
+# 💡 請將下方引號內的 AIzaSy... 換成你的實際金鑰
 # ==========================================
-MY_API_KEY = "AQ.Ab8RN6JdRzqLfOyWicsiEY6n1znm9FC0pzaTc1ia1lLy3NZOGA"
+MY_API_KEY = "AQ.Ab8RN6ICbU6N6goJkD3Qko5yjPE4OB7mkbEJAcz-B0BXNgts0w"
 
 try:
     genai.configure(api_key=MY_API_KEY)
@@ -57,7 +58,7 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的截圖預覽")
     
-    if AI_AVAILABLE and MY_API_KEY != "你的實際API金鑰":
+    if AI_AVAILABLE and MY_API_KEY != "AIzaSy...":
         with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
             try:
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -83,7 +84,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"⚠️ AI 解析錯誤：{e}")
     else:
-        st.warning("⚠️ 請先在程式碼第 8 行填入你的 Gemini API 金鑰！")
+        st.warning("⚠️ 請記得將第 16 行的 `AIzaSy...` 換成你的正式 API 金鑰！")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
