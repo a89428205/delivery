@@ -6,252 +6,127 @@ import pandas as pd
 from datetime import datetime
 import os
 
+# 嘗試載入 OCR 引擎（若失敗則保留 None，並顯示提示讓使用者知道如何補裝 packages.txt）
+try:
+    from rapidocr_onnxruntime import RapidOCR
+    ocr = RapidOCR()
+    OCR_AVAILABLE = True
+except Exception as e:
+    ocr = None
+    OCR_AVAILABLE = False
+
 st.set_page_config(
-    page_title="⚡ 外送專法 獨立單單計價補足金額追蹤器", 
-    page_icon="⚖️", 
+    page_title="外送專法 獨立單單計價補足金額追蹤器",
+    page_icon="🛵",
     layout="centered"
 )
 
 st.markdown("""
 <style>
-    .stApp { background-color: #030712; color: #f3f4f6; }
-    
-    .cyber-header {
-        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
-        border: 1px solid #10b981; 
-        padding: 16px; 
-        border-radius: 12px; 
-        text-align: center; 
-        margin-bottom: 16px;
-        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
-    }
-    .cyber-header h1 {
-        background: linear-gradient(90deg, #34d399, #38bdf8, #818cf8);
-        -webkit-background-clip: text; 
-        -webkit-text-fill-color: transparent; 
-        font-size: 22px; 
-        font-weight: 900; 
-        margin: 0;
-    }
-    
-    [data-testid="stMetric"] { 
-        background: #0f172a; 
-        border: 1px solid #1e293b; 
-        border-radius: 12px; 
-        padding: 12px 16px; 
-    }
-    
-    @media (max-width: 768px) {
-        [data-testid="column"] {
-            width: 100% !important;
-            flex: 1 1 100% !important;
-            min-width: 100% !important;
-            margin-bottom: 8px;
-        }
-        .cyber-header h1 { font-size: 18px; }
-    }
-    
-    .stButton > button { 
-        background: linear-gradient(135deg, #059669 0%, #0284c7 100%); 
-        color: white; 
-        border: 1px solid #34d399; 
-        border-radius: 12px; 
-        padding: 12px 24px; 
-        font-weight: bold; 
-        width: 100%;
-    }
+.stApp { background-color: #030712; color: #f3f4f6; }
+.cyber-header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
+    border: 1px solid #10b981;
+    padding: 16px;
+    border-radius: 12px;
+    text-align: center;
+    margin-bottom: 16px;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="cyber-header">
-    <h1>⚖️ 專法「獨立單單計價」補足金額追蹤器</h1>
-    <p style="color:#94a3b8; font-size:12px; margin-top:6px; font-family:monospace;">[ 勞動部認定方式：疊單時間分別計入各筆訂單，各單獨立計算門檻後加總 ]</p>
+    <h2 style="color: #10b981; margin:0;">🛵 外送專法獨立單計價補足金額追蹤器</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">專為外送夥伴打造的即時截圖辨識與補貼計算工具</p>
 </div>
 """, unsafe_allow_html=True)
 
-LOG_FILE = "delivery_records_independent.csv"
+# 狀態初始化
+if 'records' not in st.session_state:
+    st.session_state.records = []
 
-def load_records():
-    if os.path.exists(LOG_FILE):
-        return pd.read_csv(LOG_FILE)
-    else:
-        return pd.DataFrame(columns=["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"])
+# OCR 未載入時的提醒
+if not OCR_AVAILABLE:
+    st.info("ℹ️ 系統尚未載入 OCR 引擎（請確認已在 GitHub 專案中建立 `packages.txt` 並寫入 `libgomp1`）")
 
-def save_record(order_count, price, act_min, guarantee, shortfall, note="獨立單單"):
-    df = load_records()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    new_row = pd.DataFrame([{
-        "日期時間": now_str,
-        "單數": order_count,
-        "顯示金額": price,
-        "實際時間": act_min,
-        "專法獨立門檻": guarantee,
-        "需補足金額": shortfall,
-        "備註": note
-    }])
-    df = pd.concat([df, new_row], ignore_index=True)
-    df.to_csv(LOG_FILE, index=False)
-    return df
+# 圖片上傳區
+uploaded_file = st.file_uploader("已讀取主行程截圖", type=["png", "jpg", "jpeg"])
 
-@st.cache_resource
-def load_ocr():
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-        return RapidOCR()
-    except Exception:
-        return None
-
-ocr = load_ocr()
-
-BASE_PRICE = 45.0       # 法定單筆底價 $45
-PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
-
-uploaded_file = st.file_uploader("1️⃣ 上傳主要行程 / 初始接單截圖", type=["png", "jpg", "jpeg"])
-
-detected_price = 101.0
-detected_min = 25.0
-detected_orders = 1
+init_amount = 101.00
+duration_mins = 25.00
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="已讀取主行程截圖", use_container_width=True)
+    st.image(image, caption="上傳的截圖預覽", use_column_width=True)
     
-    if ocr is not None:
+    if OCR_AVAILABLE:
         try:
             img_np = np.array(image)
-            result_full, _ = ocr(img_np)
-            lines_text = [item[1] for item in result_full] if result_full else []
-            full_text = " ".join(lines_text)
-
-            price_match = re.search(r'\$\s*(\d+(\.\d+)?)', full_text)
-            if price_match:
-                detected_price = float(price_match.group(1))
+            result, _ = ocr(img_np)
             
-            time_match = re.search(r'(\d+)\s*分', full_text)
-            if time_match:
-                detected_min = float(time_match.group(1))
+            if result:
+                full_text = " ".join([line[1] for line in result])
+                st.write("🔍 **OCR 辨識結果文字**：", full_text)
+                
+                # 金額抓取
+                amounts = re.findall(r'\$?\s*([0-9]+(?:\.[0-9]+)?)', full_text)
+                if amounts:
+                    try:
+                        # 排除可能的干擾數字，抓取合理的金額
+                        filtered_amounts = [float(a) for a in amounts if float(a) > 20]
+                        if filtered_amounts:
+                            init_amount = filtered_amounts[0]
+                    except:
+                        pass
+                
+                # 時間抓取（例如：總計 29 分鐘）
+                time_match = re.search(r'([0-9]+)\s*分鐘', full_text)
+                if time_match:
+                    duration_mins = float(time_match.group(1))
+        except Exception as e:
+            st.error(f"OCR 解析過程發生錯誤: {e}")
 
-            if "獨享" in full_text:
-                detected_orders = 1
-            else:
-                order_match = re.search(r'外送\s*[\(（](\d+)[\)）]', full_text) or re.search(r'[\(（](\d+)[\)）]', full_text)
-                if order_match:
-                    detected_orders = int(order_match.group(1))
-                    
-            st.success(f"🤖 自動偵測成功！金額: ${detected_price}, 時間: {detected_min}分, 單數: {detected_orders}")
-        except Exception:
-            st.warning("⚠️ 自動偵測解析失敗，已帶入預設數值，您可以手動調整下方欄位。")
-    else:
-        st.info("ℹ️ 系統尚未載入 OCR 引擎（請確認已在 GitHub 專案中建立 packages.txt 並寫入 libgomp1）。")
+st.markdown("### ⏱️ 主行程數據確認")
 
-st.divider()
-st.subheader("⏱️ 主行程數據確認")
+col1, col2 = st.columns(2)
+with col1:
+    amount = st.number_input("初始金額 ($)", value=float(init_amount), step=1.00)
+with col2:
+    duration = st.number_input("行程總時間 (分鐘)", value=float(duration_mins), step=1.0)
 
-col_a, col_b, col_c = st.columns(3)
-main_price = col_a.number_input("初始金額 ($)", value=detected_price, step=1.0)
-main_minutes = col_b.number_input("行程總時間（分鐘）", value=float(detected_min), step=0.1)
-main_orders = col_c.number_input("初始單數", value=detected_orders, min_value=1, step=1)
+# 計算專法獨立門檻 (以每分鐘 4.1 元計算，最低門檻 45 元)
+threshold = max(45.0, duration * 4.1)
+diff = threshold - amount
+shortfall = max(0.0, diff)
 
-# ---------------- 支援最多 3 張途中夾單模組 ----------------
-st.divider()
-st.subheader("➕ 途中夾單 / 順路加單（最多可追加 3 張）")
-
-extra_count = st.radio("本趟行程途中共增加了幾張夾單？", [0, 1, 2, 3], horizontal=True)
-
-total_extra_orders = 0
-total_extra_price = 0.0
-
-for i in range(1, extra_count + 1):
-    st.markdown(f"##### 🛵 第 {i} 張夾單資訊")
-    tab_upload, tab_manual = st.tabs([f"📷 上傳第 {i} 張夾單截圖", f"✍️ 手動輸入第 {i} 張"])
-    
-    ex_orders = 1
-    ex_price = 0.0
-    
-    with tab_upload:
-        extra_file = st.file_uploader(f"上傳第 {i} 張夾單截圖", type=["png", "jpg", "jpeg"], key=f"extra_file_{i}")
-        if extra_file is not None:
-            ex_image = Image.open(extra_file)
-            st.image(ex_image, caption=f"已讀取第 {i} 張夾單截圖", use_container_width=True)
-            if ocr is not None:
-                try:
-                    ex_img_np = np.array(ex_image)
-                    ex_result, _ = ocr(ex_img_np)
-                    ex_lines = [item[1] for item in ex_result] if ex_result else []
-                    ex_text = " ".join(ex_lines)
-                    
-                    ex_p_match = re.search(r'\$\s*(\d+(\.\d+)?)', ex_text)
-                    ex_o_match = re.search(r'\+\s*(\d+)', ex_text) or re.search(r'(\d+)\s*單', ex_text)
-                    
-                    if ex_p_match:
-                        ex_price = float(ex_p_match.group(1))
-                    if ex_o_match:
-                        ex_orders = int(ex_o_match.group(1))
-                except Exception:
-                    pass
-            
-            up_col1, up_col2 = st.columns(2)
-            ex_orders = up_col1.number_input(f"第 {i} 張夾單數 (+單)", value=ex_orders, min_value=1, step=1, key=f"ex_ord_up_{i}")
-            ex_price = up_col2.number_input(f"第 {i} 張夾單金額 (+$)", value=ex_price, step=1.0, key=f"ex_prc_up_{i}")
-            
-    with tab_manual:
-        man_col1, man_col2 = st.columns(2)
-        man_orders = man_col1.number_input(f"手動第 {i} 張夾單數 (+單)", value=1, min_value=1, step=1, key=f"ex_ord_man_{i}")
-        man_price = man_col2.number_input(f"手動第 {i} 張夾單金額 (+$)", value=0.0, step=1.0, key=f"ex_prc_man_{i}")
-        
-        if extra_file is None:
-            ex_orders = man_orders
-            ex_price = man_price
-            
-    total_extra_orders += ex_orders
-    total_extra_price += ex_price
-
-# ---------------- 勞動部認定方式：獨立時間計價疊加計算 ----------------
-final_orders = main_orders + total_extra_orders
-final_price = main_price + total_extra_price
-actual_minutes = main_minutes
-
-single_order_target = max(BASE_PRICE, actual_minutes * PER_MINUTE_RATE)
-statutory_target = single_order_target * final_orders
-shortfall = max(0.0, statutory_target - final_price)
-
-st.divider()
-st.markdown(f"#### 📌 最終加總：**共 {final_orders} 單** | 總實領 **${final_price:.1f}**")
-
+st.markdown("---")
+st.markdown("### 📊 計算結果")
 res_col1, res_col2, res_col3 = st.columns(3)
-res_col1.metric("專法獨立加總門檻", f"${statutory_target:.1f}")
-res_col2.metric("平台實際給予", f"${final_price:.1f}")
 
-if shortfall > 0:
-    res_col3.metric("本單需補足金額", f"${shortfall:.1f}", delta=f"-${shortfall:.1f}", delta_color="inverse")
-else:
-    res_col3.metric("本單需補足金額", "$0.0", delta="已達標")
+with res_col1:
+    st.metric(label="平台實際給予", value=f"${amount:.2f}")
+with res_col2:
+    st.metric(label="專法獨立門檻", value=f"${threshold:.2f}")
+with res_col3:
+    st.metric(label="需補足金額", value=f"${shortfall:.2f}", delta=f"-${shortfall:.2f}" if shortfall > 0 else "已達標")
 
-if st.button("💾 記錄此單需補足金額"):
-    note_str = f"{final_orders}單獨立計價" + (f" (含 {extra_count} 次夾單 +{total_extra_orders}單)" if total_extra_orders > 0 else "")
-    save_record(final_orders, final_price, actual_minutes, round(statutory_target, 1), round(shortfall, 1), note_str)
-    st.success("⚡ 已將此單獨立計價補足金額存入統計檔案！")
+if st.button("➕ 記錄此筆行程", type="primary"):
+    new_record = {
+        "時間": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "金額": amount,
+        "時間(分)": duration,
+        "獨立門檻": threshold,
+        "補足金額": shortfall
+    }
+    st.session_state.records.append(new_record)
+    st.success("✅ 行程記錄已新增！")
 
-# 歷史紀錄總覽
-st.divider()
-st.subheader("📊 平台需補足金額累積總覽")
-
-records_df = load_records()
-
-if not records_df.empty:
-    total_shortfall = records_df['需補足金額'].sum()
-    total_orders = len(records_df)
+if st.session_state.records:
+    st.markdown("### 📋 歷史記錄")
+    df = pd.DataFrame(st.session_state.records)
+    st.dataframe(df, use_container_width=True)
     
-    stat_col1, stat_col2 = st.columns(2)
-    stat_col1.metric("已紀錄總筆數", f"{total_orders} 筆")
-    stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
-
-    with st.expander("📋 查看詳細獨立單單差額明細"):
-        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"]], use_container_width=True)
-        if st.button("🗑️ 清空所有歷史紀錄"):
-            if os.path.exists(LOG_FILE):
-                os.remove(LOG_FILE)
-                st.rerun()
-else:
-    st.write("尚無紀錄，請上傳截圖開始追蹤需補足金額！")
+    total_shortfall = df["補足金額"].sum()
+    st.info(f"💰 累計總需補足金額：**${total_shortfall:.2f}**")
