@@ -5,8 +5,9 @@ from PIL import Image
 import requests
 import io
 import json
+import base64
 
-# 直接使用你手邊有的這組金鑰
+# 金鑰設定
 MY_API_KEY = "AQ.Ab8RN6L7gV8SG44nLKk2qQu4gv_8X6DVH_skYKfsBLcJ7mFcg"
 
 st.set_page_config(
@@ -42,7 +43,7 @@ if 'records' not in st.session_state:
 
 if 'current_batch' not in st.session_state:
     st.session_state.current_batch = [
-        {"amount": 49.0, "duration": 13.0}
+        {"amount": 227.0, "duration": 29.0}
     ]
 
 uploaded_file = st.file_uploader("📷 上傳外送截圖（自動秒讀金額與時間）", type=["png", "jpg", "jpeg"])
@@ -53,8 +54,6 @@ if uploaded_file is not None:
     
     with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
         try:
-            # 轉換圖片為 base64
-            import base64
             buffered = io.BytesIO()
             image.save(buffered, format="JPEG")
             img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
@@ -73,22 +72,28 @@ if uploaded_file is not None:
             res = requests.post(url, headers=headers, json=payload)
             res_json = res.json()
             
-            text_res = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-            if "```json" in text_res:
-                text_res = text_res.split("```json")[1].split("```")[0].strip()
-            elif "```" in text_res:
-                text_res = text_res.split("```")[1].split("```")[0].strip()
+            if "error" in res_json:
+                err_msg = res_json["error"].get("message", str(res_json["error"]))
+                st.error(f"⚠️ Google 拒絕授權：{err_msg}")
+            elif 'candidates' in res_json:
+                text_res = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                if "```json" in text_res:
+                    text_res = text_res.split("```json")[1].split("```")[0].strip()
+                elif "```" in text_res:
+                    text_res = text_res.split("```")[1].split("```")[0].strip()
+                    
+                data = json.loads(text_res)
+                parsed_amt = float(data.get("amount", 227.0))
+                parsed_dur = float(data.get("duration", 29.0))
                 
-            data = json.loads(text_res)
-            parsed_amt = float(data.get("amount", 49.0))
-            parsed_dur = float(data.get("duration", 13.0))
-            
-            st.session_state.current_batch[0]["amount"] = parsed_amt
-            st.session_state.current_batch[0]["duration"] = parsed_dur
-            st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
-            st.rerun()
+                st.session_state.current_batch[0]["amount"] = parsed_amt
+                st.session_state.current_batch[0]["duration"] = parsed_dur
+                st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
+                st.rerun()
+            else:
+                st.error(f"⚠️ 未知的回應：{res_json}")
         except Exception as e:
-            st.error(f"⚠️ 解析錯誤：{e}")
+            st.error(f"⚠️ 發生例外錯誤：{e}")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
@@ -143,7 +148,7 @@ if st.button("📥 將此趟記錄到歷史", type="primary"):
     }
     st.session_state.records.append(new_record)
     st.success("✅ 行程記錄已成功累積！")
-    st.session_state.current_batch = [{"amount": 50.0, "duration": 15.0}]
+    st.session_state.current_batch = [{"amount": 227.0, "duration": 29.0}]
     st.rerun()
 
 if st.session_state.records:
