@@ -99,7 +99,6 @@ if "雙單" in order_type:
 elif "三單" in order_type:
     num_orders = 3
 
-# 初始化 session state
 for i in range(3):
     if f"p_{i}" not in st.session_state:
         st.session_state[f"p_{i}"] = 49.0 if i == 0 else 40.0
@@ -113,12 +112,11 @@ for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
     st.markdown(f"##### 🛵 {label_name} 數據")
     
+    # 取消圖片預覽顯示，只留上傳按鈕，避免畫面被佔滿
     up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
     
     if up_file is not None:
         img = Image.open(up_file)
-        # 縮小圖片預覽尺寸，避免在手機版上佔滿版面擋住輸入框
-        st.image(img, caption=f"已讀取 {label_name}", width=220)
         res, _ = ocr(np.array(img))
         txt = " ".join([item[1] for item in res]) if res else ""
         
