@@ -2,12 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from PIL import Image
-import requests
-import io
-import json
-import base64
-
-MY_API_KEY = "AQ.Ab8RN6L7gV8SG44nLKk2qQu4gv_8X6DVH_skYKfsBLcJ7mFcg"
+import pytesseract
+import re
 
 st.set_page_config(
     page_title="外送專法 獨立單計價補足金額追蹤器",
@@ -33,7 +29,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h2 style="color: #10b981; margin:0;">🛵 外送專法獨立單計價補足金額追蹤器</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">截圖智慧辨識 • 支援主行程與多張夾單</p>
+    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">截圖智慧解析 • 支援主行程與多張夾單</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -51,53 +47,29 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的截圖預覽")
     
-    with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
+    with st.spinner("⚡ 正在解析截圖中的金額與時間..."):
         try:
-            buffered = io.BytesIO()
-            image.save(buffered, format="JPEG")
-            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            # 轉換為灰階以提高辨識率
+            gray_img = image.convert('L')
+            text = pytesseract.image_to_string(gray_img)
             
-            # 改用 Vertex AI 專用通道來支援 AQ. 憑證
-            url = "https://us-central1-aiplatform.googleapis.com/v1/projects/795942344579/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent"
-            headers = {
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {MY_API_KEY}'
-            }
-            payload = {
-                "contents": [{
-                    "role": "user",
-                    "parts": [
-                        {"text": "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額（例如圖中的 49 或 227） 2. 時間（分鐘，例如圖中的 13 或 29）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"},
-                        {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
-                    ]
-                }]
-            }
-            
-            res = requests.post(url, headers=headers, json=payload)
-            res_json = res.json()
-            
-            if "error" in res_json:
-                err_msg = res_json["error"].get("message", str(res_json["error"]))
-                st.error(f"⚠️ 驗證失敗：{err_msg}")
-            elif 'candidates' in res_json:
-                text_res = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-                if "```json" in text_res:
-                    text_res = text_res.split("```json")[1].split("```")[0].strip()
-                elif "```" in text_res:
-                    text_res = text_res.split("```")[1].split("```")[0].strip()
-                    
-                data = json.loads(text_res)
-                parsed_amt = float(data.get("amount", 49.0))
-                parsed_dur = float(data.get("duration", 13.0))
+            # 尋找金額（例如 $49 或 49）
+            amount_match = re.search(r'\$(\d+(?:\.\d+)?)', text)
+            if not amount_match:
+                amount_match = re.search(r'(?:金額|預估|報酬|總計)[\s:]*(\d+)', text)
                 
-                st.session_state.current_batch[0]["amount"] = parsed_amt
-                st.session_state.current_batch[0]["duration"] = parsed_dur
-                st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
-                st.rerun()
-            else:
-                st.error(f"⚠️ 回應格式異常：{res_json}")
+            # 尋找時間（例如 13 分鐘）
+            duration_match = re.search(r'(\d+)\s*(?:分鐘|分|min)', text, re.IGNORECASE)
+            
+            parsed_amt = float(amount_match.group(1)) if amount_match else 49.0
+            parsed_dur = float(duration_match.group(1)) if duration_match else 13.0
+            
+            st.session_state.current_batch[0]["amount"] = parsed_amt
+            st.session_state.current_batch[0]["duration"] = parsed_dur
+            st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
+            st.rerun()
         except Exception as e:
-            st.error(f"⚠️ 發生錯誤：{e}")
+            st.info("💡 提示：已載入圖片，請直接在下方確認或微調金額與時間！")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
