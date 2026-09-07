@@ -96,7 +96,6 @@ PER_MINUTE_RATE = 4.1   # 每分鐘大約 4.1 元 (245 ÷ 60)
 st.subheader("📦 本趟行程訂單設定")
 order_type = st.radio("選擇本趟訂單類型", ["單主單（無疊單）", "雙單疊單（A單 + B單）", "三單疊單（A + B + C單）"], horizontal=True)
 
-# 根據選擇初始化訂單數量
 num_orders = 1
 if "雙單" in order_type:
     num_orders = 2
@@ -107,12 +106,18 @@ orders_data = []
 st.markdown("---")
 
 for i in range(num_orders):
-    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
+    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C単" if i==2 else f"第{i+1}單")
+    if i == 2: label_name = "C單"
+    
     st.markdown(f"##### 🛵 {label_name} 數據")
     
     col_up, col_man = st.tabs([f"📷 上傳 {label_name} 截圖", f"✍️ 手動輸入 {label_name}"])
     
-    p_val, d_val = (49.0 if i==0 else 40.0), (20.0 if i==0 else 30.0)
+    # 初始化 session_state 預設值
+    if f"p_{i}" not in st.session_state:
+        st.session_state[f"p_{i}"] = 227.0 if i==0 else 40.0
+    if f"d_{i}" not in st.session_state:
+        st.session_state[f"d_{i}"] = 29.0 if i==0 else 30.0
     
     with col_up:
         up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
@@ -124,21 +129,29 @@ for i in range(num_orders):
             
             p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
             t_m = re.search(r'(\d+)\s*分', txt)
-            if p_m: p_val = float(p_m.group(1))
-            if t_m: d_val = float(t_m.group(1))
-            st.success(f"⚡ 自動辨識成功：金額 ${p_val}，時間 {d_val} 分")
+            
+            updated = False
+            if p_m:
+                st.session_state[f"p_{i}"] = float(p_m.group(1))
+                updated = True
+            if t_m:
+                st.session_state[f"d_{i}"] = float(t_m.group(1))
+                updated = True
+                
+            if updated:
+                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'p_{i}']}，時間 {st.session_state[f'd_{i}']} 分")
+                st.rerun()
             
     with col_man:
-        pass # 下方統一用欄位微調最穩妥
+        pass
         
     c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", value=float(p_val), step=1.0, key=f"p_{i}")
-    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", value=float(d_val), step=1.0, key=f"d_{i}")
+    final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"p_{i}")
+    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", step=1.0, key=f"d_{i}")
     
     orders_data.append({"price": final_p, "duration": final_d})
     st.markdown("")
 
-# 依照勞動部標準：每張單各自計算門檻（時間 × 4.1 與 45 擇高），然後加總
 total_platform_price = sum([o["price"] for o in orders_data])
 total_labor_target = sum([max(BASE_PRICE, o["duration"] * PER_MINUTE_RATE) for o in orders_data])
 shortfall = max(0.0, total_labor_target - total_platform_price)
@@ -161,7 +174,6 @@ if st.button("💾 記錄此趟勞動部標準差額"):
     save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
     st.success("✅ 已成功寫入歷史紀錄！")
 
-# 歷史紀錄
 st.divider()
 st.subheader("📋 歷史紀錄總覽")
 df = load_records()
