@@ -109,8 +109,8 @@ PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
 
 uploaded_file = st.file_uploader("1️⃣ 上傳主要行程 / 初始接單截圖", type=["png", "jpg", "jpeg"])
 
-default_price = 101.0
-default_est_min = 25.0
+detected_price = 101.0
+detected_min = 25.0
 detected_orders = 1
 
 if uploaded_file is not None:
@@ -126,24 +126,31 @@ if uploaded_file is not None:
 
             price_match = re.search(r'\$\s*(\d+(\.\d+)?)', full_text)
             if price_match:
-                default_price = float(price_match.group(1))
+                detected_price = float(price_match.group(1))
             
             time_match = re.search(r'(\d+)\s*分', full_text)
             if time_match:
-                default_est_min = float(time_match.group(1))
+                detected_min = float(time_match.group(1))
 
-            order_match = re.search(r'外送\s*[\(（](\d+)[\)）]', full_text) or re.search(r'[\(（](\d+)[\)）]', full_text)
-            if order_match:
-                detected_orders = int(order_match.group(1))
+            if "獨享" in full_text:
+                detected_orders = 1
+            else:
+                order_match = re.search(r'外送\s*[\(（](\d+)[\)）]', full_text) or re.search(r'[\(（](\d+)[\)）]', full_text)
+                if order_match:
+                    detected_orders = int(order_match.group(1))
+                    
+            st.success(f"🤖 自動偵測成功！金額: ${detected_price}, 時間: {detected_min}分, 單數: {detected_orders}")
         except Exception:
-            pass
+            st.warning("⚠️ 自動偵測解析失敗，已帶入預設數值，您可以手動調整下方欄位。")
+    else:
+        st.info("ℹ️ 系統尚未載入 OCR 引擎（請確認已在 GitHub 專案中建立 packages.txt 並寫入 libgomp1）。")
 
 st.divider()
 st.subheader("⏱️ 主行程數據確認")
 
 col_a, col_b, col_c = st.columns(3)
-main_price = col_a.number_input("初始金額 ($)", value=default_price, step=1.0)
-main_minutes = col_b.number_input("行程總時間（分鐘）", value=float(default_est_min), step=0.1)
+main_price = col_a.number_input("初始金額 ($)", value=detected_price, step=1.0)
+main_minutes = col_b.number_input("行程總時間（分鐘）", value=float(detected_min), step=0.1)
 main_orders = col_c.number_input("初始單數", value=detected_orders, min_value=1, step=1)
 
 # ---------------- 支援最多 3 張途中夾單模組 ----------------
@@ -205,7 +212,6 @@ final_orders = main_orders + total_extra_orders
 final_price = main_price + total_extra_price
 actual_minutes = main_minutes
 
-# 每單各自獨立計算： max(底價 $45, 總行程時間 × $4.1)，再將所有單的門檻加總
 single_order_target = max(BASE_PRICE, actual_minutes * PER_MINUTE_RATE)
 statutory_target = single_order_target * final_orders
 shortfall = max(0.0, statutory_target - final_price)
