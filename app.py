@@ -6,7 +6,6 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# 嘗試載入 OCR 引擎（若失敗則保留 None，並顯示提示讓使用者知道如何補裝 packages.txt）
 try:
     from rapidocr_onnxruntime import RapidOCR
     ocr = RapidOCR()
@@ -43,15 +42,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 狀態初始化
 if 'records' not in st.session_state:
     st.session_state.records = []
 
-# OCR 未載入時的提醒
 if not OCR_AVAILABLE:
     st.info("ℹ️ 系統尚未載入 OCR 引擎（請確認已在 GitHub 專案中建立 `packages.txt` 並寫入 `libgomp1`）")
 
-# 圖片上傳區
 uploaded_file = st.file_uploader("已讀取主行程截圖", type=["png", "jpg", "jpeg"])
 
 init_amount = 101.00
@@ -59,7 +55,7 @@ duration_mins = 25.00
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="上傳的截圖預覽", use_column_width=True)
+    st.image(image, caption="上傳的截圖預覽")
     
     if OCR_AVAILABLE:
         try:
@@ -70,18 +66,15 @@ if uploaded_file is not None:
                 full_text = " ".join([line[1] for line in result])
                 st.write("🔍 **OCR 辨識結果文字**：", full_text)
                 
-                # 金額抓取
                 amounts = re.findall(r'\$?\s*([0-9]+(?:\.[0-9]+)?)', full_text)
                 if amounts:
                     try:
-                        # 排除可能的干擾數字，抓取合理的金額
                         filtered_amounts = [float(a) for a in amounts if float(a) > 20]
                         if filtered_amounts:
                             init_amount = filtered_amounts[0]
                     except:
                         pass
                 
-                # 時間抓取（例如：總計 29 分鐘）
                 time_match = re.search(r'([0-9]+)\s*分鐘', full_text)
                 if time_match:
                     duration_mins = float(time_match.group(1))
@@ -96,7 +89,6 @@ with col1:
 with col2:
     duration = st.number_input("行程總時間 (分鐘)", value=float(duration_mins), step=1.0)
 
-# 計算專法獨立門檻 (以每分鐘 4.1 元計算，最低門檻 45 元)
 threshold = max(45.0, duration * 4.1)
 diff = threshold - amount
 shortfall = max(0.0, diff)
