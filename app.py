@@ -50,12 +50,22 @@ if not OCR_AVAILABLE:
 
 uploaded_file = st.file_uploader("已讀取主行程截圖", type=["png", "jpg", "jpeg"])
 
-init_amount = 227.00
-duration_mins = 29.00
+# 預設預設值
+detected_amount = 101.00
+detected_duration = 25.00
+
+# 追蹤上一次的檔案名稱，確保換新截圖時重新觸發
+if 'last_file' not in st.session_state:
+    st.session_state.last_file = None
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="上傳的截圖預覽")
+    
+    # 判斷是否為新上傳的圖片
+    is_new_image = (st.session_state.last_file != uploaded_file.name)
+    if is_new_image:
+        st.session_state.last_file = uploaded_file.name
     
     if OCR_AVAILABLE:
         try:
@@ -65,19 +75,15 @@ if uploaded_file is not None:
             if result:
                 full_text = " ".join([line[1] for line in result])
                 
-                # 優先抓取帶有 $ 符號後面的數字（例如 $227）
+                # 抓取金額（$ 後面的數字）
                 price_match = re.search(r'\$\s*([0-9]+(?:\.[0-9]+)?)', full_text)
                 if price_match:
-                    init_amount = float(price_match.group(1))
-                else:
-                    amounts = re.findall(r'([0-9]+(?:\.[0-9]+)?)\s*總計', full_text)
-                    if amounts:
-                        init_amount = float(amounts[0])
+                    detected_amount = float(price_match.group(1))
                 
-                # 時間抓取
+                # 抓取時間（分鐘前方的數字）
                 time_match = re.search(r'([0-9]+)\s*分鐘', full_text)
                 if time_match:
-                    duration_mins = float(time_match.group(1))
+                    detected_duration = float(time_match.group(1))
         except Exception as e:
             st.error(f"OCR 解析過程發生錯誤: {e}")
 
@@ -85,9 +91,9 @@ st.markdown("### ⏱️ 主行程數據確認")
 
 col1, col2 = st.columns(2)
 with col1:
-    amount = st.number_input("初始金額 ($)", value=float(init_amount), step=1.00)
+    amount = st.number_input("初始金額 ($)", value=float(detected_amount), step=1.00, key=f"amt_{uploaded_file.name if uploaded_file else 'none'}")
 with col2:
-    duration = st.number_input("行程總時間 (分鐘)", value=float(duration_mins), step=1.0)
+    duration = st.number_input("行程總時間 (分鐘)", value=float(detected_duration), step=1.0, key=f"dur_{uploaded_file.name if uploaded_file else 'none'}")
 
 threshold = max(45.0, duration * 4.1)
 diff = threshold - amount
