@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# 嘗試載入更輕量快速的 pytesseract 或保留 google.generativeai 影像理解來達到秒讀與精準度
 try:
     import google.generativeai as genai
     from PIL import Image
@@ -52,19 +51,16 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的截圖預覽")
     
-    # 這裡利用 Streamlit Secrets 中的 API Key 進行精準 Gemini 影像辨識金額與時間
     if AI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
         with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                # 使用輕量快速的 flash 模型進行視覺解析
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content([
                     image, 
                     "請從這張外送截圖中萃取出兩個數字：1. 金額（數字即可，例如 49） 2. 時間（分鐘，數字即可，例如 13）。請嚴格依照格式回傳 JSON：{\"amount\": 數字, \"duration\": 數字}"
                 ])
                 import json
-                # 清理文字抓取 JSON
                 text_res = response.text.strip()
                 if "```json" in text_res:
                     text_res = text_res.split("```json")[1].split("```")[0].strip()
@@ -75,7 +71,6 @@ if uploaded_file is not None:
                 parsed_amt = float(data.get("amount", 49.0))
                 parsed_dur = float(data.get("duration", 13.0))
                 
-                # 自動更新到當前清單的第一張單
                 st.session_state.current_batch[0]["amount"] = parsed_amt
                 st.session_state.current_batch[0]["duration"] = parsed_dur
                 st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
@@ -145,4 +140,3 @@ if st.session_state.records:
     
     total_shortfall = df["補足金額"].sum()
     st.info(f"💰 累計總需補足金額：**${total_shortfall:.2f}**")
-```[cite: 1]
