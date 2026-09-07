@@ -90,8 +90,8 @@ def load_ocr():
 
 ocr = load_ocr()
 
-BASE_PRICE = 45.0       # 單筆底價保障
-PER_MINUTE_RATE = 4.1   # 每分鐘大約 4.1 元 (245 ÷ 60)
+BASE_PRICE = 45.0       
+PER_MINUTE_RATE = 4.1   
 
 st.subheader("📦 本趟行程訂單設定")
 order_type = st.radio("選擇本趟訂單類型", ["單主單（無疊單）", "雙單疊單（A單 + B單）", "三單疊單（A + B + C單）"], horizontal=True)
@@ -106,48 +106,46 @@ orders_data = []
 st.markdown("---")
 
 for i in range(num_orders):
-    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C単" if i==2 else f"第{i+1}單")
-    if i == 2: label_name = "C單"
+    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
     
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    col_up, col_man = st.tabs([f"📷 上傳 {label_name} 截圖", f"✍️ 手動輸入 {label_name}"])
-    
-    # 初始化 session_state 預設值
+    # 初始化 session 變數
     if f"p_{i}" not in st.session_state:
-        st.session_state[f"p_{i}"] = 227.0 if i==0 else 40.0
+        st.session_state[f"p_{i}"] = 49.0 if i == 0 else 40.0
     if f"d_{i}" not in st.session_state:
-        st.session_state[f"d_{i}"] = 29.0 if i==0 else 30.0
+        st.session_state[f"d_{i}"] = 15.0 if i == 0 else 20.0
     
-    with col_up:
-        up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
-        if up_file is not None:
-            img = Image.open(up_file)
-            st.image(img, caption=f"已讀取 {label_name}", use_container_width=True)
-            res, _ = ocr(np.array(img))
-            txt = " ".join([item[1] for item in res]) if res else ""
+    up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
+    if up_file is not None:
+        img = Image.open(up_file)
+        st.image(img, caption=f"已讀取 {label_name}", use_container_width=True)
+        res, _ = ocr(np.array(img))
+        txt = " ".join([item[1] for item in res]) if res else ""
+        
+        p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
+        t_m = re.search(r'(\d+)\s*分', txt)
+        
+        updated = False
+        if p_m:
+            st.session_state[f"p_{i}"] = float(p_m.group(1))
+            updated = True
+        if t_m:
+            st.session_state[f"d_{i}"] = float(t_m.group(1))
+            updated = True
             
-            p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
-            t_m = re.search(r'(\d+)\s*分', txt)
-            
-            updated = False
-            if p_m:
-                st.session_state[f"p_{i}"] = float(p_m.group(1))
-                updated = True
-            if t_m:
-                st.session_state[f"d_{i}"] = float(t_m.group(1))
-                updated = True
-                
-            if updated:
-                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'p_{i}']}，時間 {st.session_state[f'd_{i}']} 分")
-                st.rerun()
-            
-    with col_man:
-        pass
+        if updated:
+            st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'p_{i}']}，時間 {st.session_state[f'd_{i}']} 分")
+            st.rerun()
         
     c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"p_{i}")
-    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", step=1.0, key=f"d_{i}")
+    # 直接透過 value 綁定 session_state 確保數值正確寫入
+    final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[f"p_{i}"], step=1.0, key=f"num_p_{i}")
+    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", value=st.session_state[f"d_{i}"], step=1.0, key=f"num_d_{i}")
+    
+    # 同步更新回 session
+    st.session_state[f"p_{i}"] = final_p
+    st.session_state[f"d_{i}"] = final_d
     
     orders_data.append({"price": final_p, "duration": final_d})
     st.markdown("")
