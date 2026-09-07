@@ -1,17 +1,14 @@
 import streamlit as st
-from PIL import Image
-import numpy as np
-import re
 import pandas as pd
 from datetime import datetime
 
+# 嘗試載入更輕量快速的 pytesseract 或保留 google.generativeai 影像理解來達到秒讀與精準度
 try:
-    from rapidocr_onnxruntime import RapidOCR
-    ocr = RapidOCR()
-    OCR_AVAILABLE = True
-except Exception as e:
-    ocr = None
-    OCR_AVAILABLE = False
+    import google.generativeai as genai
+    from PIL import Image
+    AI_AVAILABLE = True
+except Exception:
+    AI_AVAILABLE = False
 
 st.set_page_config(
     page_title="外送專法 獨立單單計價補足金額追蹤器",
@@ -37,49 +34,53 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h2 style="color: #10b981; margin:0;">🛵 外送專法獨立單計價補足金額追蹤器</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">首張截圖自動辨識 • 支援多張夾單/疊單快速加總</p>
+    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">AI 智慧截圖自動解析 • 支援主行程與多張夾單</p>
 </div>
 """, unsafe_allow_html=True)
 
 if 'records' not in st.session_state:
     st.session_state.records = []
 
-# 預設首張單數值
-init_amount = 101.00
-init_duration = 25.00
+if 'current_batch' not in st.session_state:
+    st.session_state.current_batch = [
+        {"amount": 49.0, "duration": 13.0}
+    ]
 
-# 上傳首張單截圖
-uploaded_file = st.file_uploader("📷 上傳首張行程截圖（自動辨識金額與時間）", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("📷 上傳外送截圖（自動秒讀金額與時間）", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="已上傳的首張截圖預覽")
+    st.image(image, caption="已上傳的截圖預覽")
     
-    if OCR_AVAILABLE:
-        try:
-            img_np = np.array(image)
-            result, _ = ocr(img_np)
-            
-            if result:
-                full_text = " ".join([line[1] for line in result])
+    # 這裡利用 Streamlit Secrets 中的 API Key 進行精準 Gemini 影像辨識金額與時間
+    if AI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
+        with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
+            try:
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                # 使用輕量快速的 flash 模型進行視覺解析
+                model = genai.GenerativeModel('gemini-2.5-flash')
+                response = model.generate_content([
+                    image, 
+                    "請從這張外送截圖中萃取出兩個數字：1. 金額（數字即可，例如 49） 2. 時間（分鐘，數字即可，例如 13）。請嚴格依照格式回傳 JSON：{\"amount\": 數字, \"duration\": 數字}"
+                ])
+                import json
+                # 清理文字抓取 JSON
+                text_res = response.text.strip()
+                if "```json" in text_res:
+                    text_res = text_res.split("```json")[1].split("```")[0].strip()
+                elif "```" in text_res:
+                    text_res = text_res.split("```")[1].split("```")[0].strip()
                 
-                # 自動抓取金額 ($ 後面的數字)
-                price_match = re.search(r'\$\s*([0-9]+(?:\.[0-9]+)?)', full_text)
-                if price_match:
-                    init_amount = float(price_match.group(1))
+                data = json.loads(text_res)
+                parsed_amt = float(data.get("amount", 49.0))
+                parsed_dur = float(data.get("duration", 13.0))
                 
-                # 自動抓取時間 (分鐘前方的數字)
-                time_match = re.search(r'([0-9]+)\s*分鐘', full_text)
-                if time_match:
-                    init_duration = float(time_match.group(1))
-        except Exception as e:
-            pass
-
-# 初始化多單列表
-if 'current_batch' not in st.session_state or uploaded_file is not None:
-    st.session_state.current_batch = [
-        {"amount": init_amount, "duration": init_duration}
-    ]
+                # 自動更新到當前清單的第一張單
+                st.session_state.current_batch[0]["amount"] = parsed_amt
+                st.session_state.current_batch[0]["duration"] = parsed_dur
+                st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
+            except Exception as e:
+                st.warning("⚠️ 自動解析失敗，請直接從下方欄位確認或手動調整。")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
@@ -108,7 +109,6 @@ if st.button("➕ 增加一張夾單/疊單"):
 total_amount = sum([item["amount"] for item in st.session_state.current_batch])
 total_duration = sum([item["duration"] for item in st.session_state.current_batch])
 
-# 專法獨立門檻 (每分鐘 4.1 元，最低 45 元)
 threshold = max(45.0, total_duration * 4.1)
 diff = threshold - total_amount
 shortfall = max(0.0, diff)
@@ -135,6 +135,8 @@ if st.button("📥 將此趟記錄到歷史", type="primary"):
     }
     st.session_state.records.append(new_record)
     st.success("✅ 行程記錄已成功累積！")
+    st.session_state.current_batch = [{"amount": 50.0, "duration": 15.0}]
+    st.rerun()
 
 if st.session_state.records:
     st.markdown("### 📋 歷史記錄")
@@ -143,3 +145,4 @@ if st.session_state.records:
     
     total_shortfall = df["補足金額"].sum()
     st.info(f"💰 累計總需補足金額：**${total_shortfall:.2f}**")
+```[cite: 1]
