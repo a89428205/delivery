@@ -1,6 +1,17 @@
 import streamlit as st
+from PIL import Image
+import numpy as np
+import re
 import pandas as pd
 from datetime import datetime
+
+try:
+    from rapidocr_onnxruntime import RapidOCR
+    ocr = RapidOCR()
+    OCR_AVAILABLE = True
+except Exception as e:
+    ocr = None
+    OCR_AVAILABLE = False
 
 st.set_page_config(
     page_title="外送專法 獨立單單計價補足金額追蹤器",
@@ -26,23 +37,52 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h2 style="color: #10b981; margin:0;">🛵 外送專法獨立單計價補足金額追蹤器</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">極速多單/夾單專用計算器 • 支援無限疊單快速輸入</p>
+    <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">首張截圖自動辨識 • 支援多張夾單/疊單快速加總</p>
 </div>
 """, unsafe_allow_html=True)
 
 if 'records' not in st.session_state:
     st.session_state.records = []
 
-# 初始化當前這趟的多單列表
-if 'current_batch' not in st.session_state:
+# 預設首張單數值
+init_amount = 101.00
+init_duration = 25.00
+
+# 上傳首張單截圖
+uploaded_file = st.file_uploader("📷 上傳首張行程截圖（自動辨識金額與時間）", type=["png", "jpg", "jpeg"])
+
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="已上傳的首張截圖預覽")
+    
+    if OCR_AVAILABLE:
+        try:
+            img_np = np.array(image)
+            result, _ = ocr(img_np)
+            
+            if result:
+                full_text = " ".join([line[1] for line in result])
+                
+                # 自動抓取金額 ($ 後面的數字)
+                price_match = re.search(r'\$\s*([0-9]+(?:\.[0-9]+)?)', full_text)
+                if price_match:
+                    init_amount = float(price_match.group(1))
+                
+                # 自動抓取時間 (分鐘前方的數字)
+                time_match = re.search(r'([0-9]+)\s*分鐘', full_text)
+                if time_match:
+                    init_duration = float(time_match.group(1))
+        except Exception as e:
+            pass
+
+# 初始化多單列表
+if 'current_batch' not in st.session_state or uploaded_file is not None:
     st.session_state.current_batch = [
-        {"amount": 227.0, "duration": 29.0},
-        {"amount": 101.0, "duration": 25.0}
+        {"amount": init_amount, "duration": init_duration}
     ]
 
-st.markdown("### 📦 本趟行程明細（支援多張夾單/疊單）")
+st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
-# 動態調整夾單數量
 for i, item in enumerate(st.session_state.current_batch):
     cols = st.columns([3, 3, 1])
     with cols[0]:
@@ -57,7 +97,7 @@ for i, item in enumerate(st.session_state.current_batch):
         st.write("")
         st.write("")
         if len(st.session_state.current_batch) > 1:
-            if st.button("🗑️", key=f"del_{i}__"):
+            if st.button("🗑️", key=f"del_{i}"):
                 st.session_state.current_batch.pop(i)
                 st.rerun()
 
@@ -65,7 +105,6 @@ if st.button("➕ 增加一張夾單/疊單"):
     st.session_state.current_batch.append({"amount": 80.0, "duration": 10.0})
     st.rerun()
 
-# 計算總金額與總時間
 total_amount = sum([item["amount"] for item in st.session_state.current_batch])
 total_duration = sum([item["duration"] for item in st.session_state.current_batch])
 
@@ -85,7 +124,7 @@ with res_col2:
 with res_col3:
     st.metric(label="總需補足金額", value=f"${shortfall:.2f}", delta=f"-${shortfall:.2f}" if shortfall > 0 else "已達標")
 
-if st.button("📥 將此趟（含所有夾單）記錄到歷史", type="primary"):
+if st.button("📥 將此趟記錄到歷史", type="primary"):
     new_record = {
         "時間": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "單數": f"{len(st.session_state.current_batch)} 張單",
