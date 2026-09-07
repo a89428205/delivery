@@ -2,19 +2,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from PIL import Image
-import google.generativeai as genai
-import os
+import requests
+import io
+import json
 
-# ==========================================
-# 💡 請將下方引號內的 AIzaSy... 換成你的實際金鑰
-# ==========================================
-MY_API_KEY = "AQ.Ab8RN6ICbU6N6goJkD3Qko5yjPE4OB7mkbEJAcz-B0BXNgts0w"
-
-try:
-    genai.configure(api_key=MY_API_KEY)
-    AI_AVAILABLE = True
-except Exception:
-    AI_AVAILABLE = False
+# 直接使用你手邊有的這組金鑰
+MY_API_KEY = "AQ.Ab8RN6L7gV8SG44nLKk2qQu4gv_8X6DVH_skYKfsBLcJ7mFcg"
 
 st.set_page_config(
     page_title="外送專法 獨立單計價補足金額追蹤器",
@@ -58,33 +51,44 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的截圖預覽")
     
-    if AI_AVAILABLE and MY_API_KEY != "AIzaSy...":
-        with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
-            try:
-                model = genai.GenerativeModel('gemini-2.5-flash')
-                response = model.generate_content([
-                    image, 
-                    "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額（例如圖中的 101） 2. 時間（分鐘，例如圖中的 25）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"
-                ])
-                import json
-                text_res = response.text.strip()
-                if "```json" in text_res:
-                    text_res = text_res.split("```json")[1].split("```")[0].strip()
-                elif "```" in text_res:
-                    text_res = text_res.split("```")[1].split("```")[0].strip()
+    with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
+        try:
+            # 轉換圖片為 base64
+            import base64
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG")
+            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={MY_API_KEY}"
+            headers = {'Content-Type': 'application/json'}
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額 2. 時間（分鐘）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"},
+                        {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
+                    ]
+                }]
+            }
+            
+            res = requests.post(url, headers=headers, json=payload)
+            res_json = res.json()
+            
+            text_res = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            if "```json" in text_res:
+                text_res = text_res.split("```json")[1].split("```")[0].strip()
+            elif "```" in text_res:
+                text_res = text_res.split("```")[1].split("```")[0].strip()
                 
-                data = json.loads(text_res)
-                parsed_amt = float(data.get("amount", 49.0))
-                parsed_dur = float(data.get("duration", 13.0))
-                
-                st.session_state.current_batch[0]["amount"] = parsed_amt
-                st.session_state.current_batch[0]["duration"] = parsed_dur
-                st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
-                st.rerun()
-            except Exception as e:
-                st.error(f"⚠️ AI 解析錯誤：{e}")
-    else:
-        st.warning("⚠️ 請記得將第 16 行的 `AIzaSy...` 換成你的正式 API 金鑰！")
+            data = json.loads(text_res)
+            parsed_amt = float(data.get("amount", 49.0))
+            parsed_dur = float(data.get("duration", 13.0))
+            
+            st.session_state.current_batch[0]["amount"] = parsed_amt
+            st.session_state.current_batch[0]["duration"] = parsed_dur
+            st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
+            st.rerun()
+        except Exception as e:
+            st.error(f"⚠️ 解析錯誤：{e}")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
