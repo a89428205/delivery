@@ -15,7 +15,6 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp { background-color: #030712; color: #f3f4f6; }
-    
     .cyber-header {
         background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #030712 100%);
         border: 1px solid #10b981; 
@@ -33,14 +32,12 @@ st.markdown("""
         font-weight: 900; 
         margin: 0;
     }
-    
     [data-testid="stMetric"] { 
         background: #022c22; 
         border: 1px solid #047857; 
         border-radius: 12px; 
         padding: 12px 16px; 
     }
-    
     .stButton > button { 
         background: linear-gradient(135deg, #059669 0%, #10b981 100%); 
         color: white; 
@@ -102,48 +99,52 @@ if "雙單" in order_type:
 elif "三單" in order_type:
     num_orders = 3
 
+# 初始化 session state
+for i in range(3):
+    if f"p_{i}" not in st.session_state:
+        st.session_state[f"p_{i}"] = 49.0 if i == 0 else 40.0
+    if f"d_{i}" not in st.session_state:
+        st.session_state[f"d_{i}"] = 15.0 if i == 0 else 20.0
+
 orders_data = []
 st.markdown("---")
 
 for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
-    
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    # 初始化 session 變數
-    if f"p_{i}" not in st.session_state:
-        st.session_state[f"p_{i}"] = 49.0 if i == 0 else 40.0
-    if f"d_{i}" not in st.session_state:
-        st.session_state[f"d_{i}"] = 15.0 if i == 0 else 20.0
-    
     up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
+    
     if up_file is not None:
         img = Image.open(up_file)
-        st.image(img, caption=f"已讀取 {label_name}", use_container_width=True)
+        # 縮小圖片預覽尺寸，避免在手機版上佔滿版面擋住輸入框
+        st.image(img, caption=f"已讀取 {label_name}", width=220)
         res, _ = ocr(np.array(img))
         txt = " ".join([item[1] for item in res]) if res else ""
         
         p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
         t_m = re.search(r'(\d+)\s*分', txt)
         
-        updated = False
+        changed = False
         if p_m:
-            st.session_state[f"p_{i}"] = float(p_m.group(1))
-            updated = True
+            val_p = float(p_m.group(1))
+            if st.session_state[f"p_{i}"] != val_p:
+                st.session_state[f"p_{i}"] = val_p
+                changed = True
         if t_m:
-            st.session_state[f"d_{i}"] = float(t_m.group(1))
-            updated = True
-            
-        if updated:
+            val_d = float(t_m.group(1))
+            if st.session_state[f"d_{i}"] != val_d:
+                st.session_state[f"d_{i}"] = val_d
+                changed = True
+                
+        if changed:
             st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'p_{i}']}，時間 {st.session_state[f'd_{i}']} 分")
             st.rerun()
-        
+
     c1, c2 = st.columns(2)
-    # 直接透過 value 綁定 session_state 確保數值正確寫入
-    final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[f"p_{i}"], step=1.0, key=f"num_p_{i}")
-    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", value=st.session_state[f"d_{i}"], step=1.0, key=f"num_d_{i}")
+    final_p = c1.number_input(f"{label_name} 金額 ($)", value=float(st.session_state[f"p_{i}"]), step=1.0, key=f"num_p_{i}")
+    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", value=float(st.session_state[f"d_{i}"]), step=1.0, key=f"num_d_{i}")
     
-    # 同步更新回 session
     st.session_state[f"p_{i}"] = final_p
     st.session_state[f"d_{i}"] = final_d
     
