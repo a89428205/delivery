@@ -42,31 +42,32 @@ if 'records' not in st.session_state:
 
 if 'current_batch' not in st.session_state:
     st.session_state.current_batch = [
-        {"amount": 227.0, "duration": 29.0}
+        {"amount": 49.0, "duration": 13.0}
     ]
 
-# 恢復截圖上傳功能
-uploaded_file = st.file_uploader("📷 上傳外送截圖（自動帶入金額與時間）", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("📷 上傳外送截圖（自動秒讀金額與時間）", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的截圖預覽")
     
-    with st.spinner("⚡ AI 正在解析截圖..."):
+    with st.spinner("⚡ AI 正在精準解析截圖中的金額與時間..."):
         try:
             buffered = io.BytesIO()
             image.save(buffered, format="JPEG")
             img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
             
-            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+            # 改用 Vertex AI 專用通道來支援 AQ. 憑證
+            url = "https://us-central1-aiplatform.googleapis.com/v1/projects/795942344579/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent"
             headers = {
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {MY_API_KEY}'
             }
             payload = {
                 "contents": [{
+                    "role": "user",
                     "parts": [
-                        {"text": "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額 2. 時間（分鐘）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"},
+                        {"text": "這是一張外送訂單截圖。請幫我找出兩個數值：1. 金額（例如圖中的 49 或 227） 2. 時間（分鐘，例如圖中的 13 或 29）。請嚴格只回傳 JSON 格式：{\"amount\": 數字, \"duration\": 數字}"},
                         {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
                     ]
                 }]
@@ -75,7 +76,10 @@ if uploaded_file is not None:
             res = requests.post(url, headers=headers, json=payload)
             res_json = res.json()
             
-            if 'candidates' in res_json:
+            if "error" in res_json:
+                err_msg = res_json["error"].get("message", str(res_json["error"]))
+                st.error(f"⚠️ 驗證失敗：{err_msg}")
+            elif 'candidates' in res_json:
                 text_res = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
                 if "```json" in text_res:
                     text_res = text_res.split("```json")[1].split("```")[0].strip()
@@ -83,17 +87,17 @@ if uploaded_file is not None:
                     text_res = text_res.split("```")[1].split("```")[0].strip()
                     
                 data = json.loads(text_res)
-                parsed_amt = float(data.get("amount", 227.0))
-                parsed_dur = float(data.get("duration", 29.0))
+                parsed_amt = float(data.get("amount", 49.0))
+                parsed_dur = float(data.get("duration", 13.0))
                 
                 st.session_state.current_batch[0]["amount"] = parsed_amt
                 st.session_state.current_batch[0]["duration"] = parsed_dur
                 st.success(f"✅ 成功辨識！金額：${parsed_amt}，時間：{parsed_dur} 分鐘")
                 st.rerun()
             else:
-                st.info("💡 提示：目前憑證權限受限，請直接在下方欄位手動確認金額與時間即可！")
-        except Exception:
-            st.info("💡 提示：請直接在下方欄位確認或調整金額與時間即可！")
+                st.error(f"⚠️ 回應格式異常：{res_json}")
+        except Exception as e:
+            st.error(f"⚠️ 發生錯誤：{e}")
 
 st.markdown("### 📦 本趟行程明細（首張單 + 夾單/疊單）")
 
@@ -148,7 +152,7 @@ if st.button("📥 將此趟記錄到歷史", type="primary"):
     }
     st.session_state.records.append(new_record)
     st.success("✅ 行程記錄已成功累積！")
-    st.session_state.current_batch = [{"amount": 227.0, "duration": 29.0}]
+    st.session_state.current_batch = [{"amount": 49.0, "duration": 13.0}]
     st.rerun()
 
 if st.session_state.records:
