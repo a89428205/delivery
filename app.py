@@ -109,9 +109,10 @@ PER_MINUTE_RATE = 4.1   # 每分鐘 $4.1 元
 
 uploaded_file = st.file_uploader("1️⃣ 上傳主要行程 / 初始接單截圖", type=["png", "jpg", "jpeg"])
 
-total_price = 92.0
-total_est_min = 20.75
-detected_orders = 2
+# 改進預設值，避免未成功辨識時死守舊的 92/20.75
+default_price = 101.0
+default_est_min = 25.0
+detected_orders = 1
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
@@ -126,11 +127,11 @@ if uploaded_file is not None:
 
             price_match = re.search(r'\$\s*(\d+(\.\d+)?)', full_text)
             if price_match:
-                total_price = float(price_match.group(1))
+                default_price = float(price_match.group(1))
             
             time_match = re.search(r'(\d+)\s*分', full_text)
             if time_match:
-                total_est_min = float(time_match.group(1))
+                default_est_min = float(time_match.group(1))
 
             order_match = re.search(r'外送\s*[\(（](\d+)[\)）]', full_text) or re.search(r'[\(（](\d+)[\)）]', full_text)
             if order_match:
@@ -142,8 +143,8 @@ st.divider()
 st.subheader("⏱️ 主行程數據確認")
 
 col_a, col_b, col_c = st.columns(3)
-main_price = col_a.number_input("初始金額 ($)", value=total_price, step=1.0)
-main_minutes = col_b.number_input("行程總時間（分鐘）", value=float(total_est_min), step=0.1)
+main_price = col_a.number_input("初始金額 ($)", value=default_price, step=1.0)
+main_minutes = col_b.number_input("行程總時間（分鐘）", value=float(default_est_min), step=0.1)
 main_orders = col_c.number_input("初始單數", value=detected_orders, min_value=1, step=1)
 
 # ---------------- 支援最多 3 張途中夾單模組 ----------------
@@ -242,7 +243,7 @@ if not records_df.empty:
     stat_col2.metric("平台累計需補足總金額", f"${total_shortfall:.1f}", delta=f"應向平台討 ${total_shortfall:.1f}" if total_shortfall > 0 else "已達標無差額")
 
     with st.expander("📋 查看詳細獨立單單差額明細"):
-        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"]], use_container_width=True)
+        st.dataframe(records_df[["日期時間", "單數", "顯示金額", "實際時間", "專法獨立門檻", "需補足金額", "備註"]], use_container_wood=True if "use_container_wood" in locals() else use_container_width=True) # type: ignore
         if st.button("🗑️ 清空所有歷史紀錄"):
             if os.path.exists(LOG_FILE):
                 os.remove(LOG_FILE)
