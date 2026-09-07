@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from PIL import Image
 
 try:
     import google.generativeai as genai
-    from PIL import Image
     AI_AVAILABLE = True
 except Exception:
     AI_AVAILABLE = False
