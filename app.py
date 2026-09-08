@@ -110,7 +110,7 @@ for i in range(3):
     if f"num_d_{i}" not in st.session_state:
         st.session_state[f"num_d_{i}"] = 15.0 if i == 0 else 20.0
     if f"time_{i}" not in st.session_state:
-        st.session_state[f"time_{i}"] = datetime.now().strftime("%H:%M")
+        st.session_state[f"time_{i}"] = ""
 
 orders_data = []
 st.markdown("---")
@@ -140,25 +140,29 @@ for i in range(num_orders):
                     changed = True
             if t_m:
                 val_d = float(t_m.group(1))
+                # 截圖抓到的僅作預設參考，實際計算以你手動填寫的實際花費為主
                 if st.session_state[f"num_d_{i}"] != val_d:
                     st.session_state[f"num_d_{i}"] = val_d
                     changed = True
                     
             if changed:
-                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'num_p_{i}']}，時間 {st.session_state[f'num_d_{i}']} 分")
+                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'num_p_{i}']}，預估時間參考 {st.session_state[f'num_d_{i}']} 分")
                 st.rerun()
 
     c1, c2 = st.columns(2)
     final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"num_p_{i}")
-    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", step=1.0, key=f"num_d_{i}")
     
-    # 新增：實際送完時間輸入欄位
-    finish_time = st.text_input(f"{label_name} 實際送完時間 (例如 14:30)", key=f"time_{i}")
+    # 這裡讓你可以自由填寫實際花費的時間（直接連動下方公式計算門檻）
+    final_d = c2.number_input(f"{label_name} 實際送達花費時間（分鐘）", step=1.0, key=f"num_d_{i}")
+    
+    # 實際送完的時間點（如 14:30）
+    finish_time = st.text_input(f"{label_name} 實際送完時間點 (例如 14:30)", key=f"time_{i}")
     
     orders_data.append({"price": final_p, "duration": final_d, "finish_time": finish_time})
     st.markdown("")
 
 total_platform_price = sum([o["price"] for o in orders_data])
+# 公式直接使用你填寫的「實際花費時間」來計算勞動部門檻
 total_labor_target = sum([max(BASE_PRICE, o["duration"] * PER_MINUTE_RATE) for o in orders_data])
 shortfall = max(0.0, total_labor_target - total_platform_price)
 
@@ -174,8 +178,8 @@ if shortfall > 0:
 else:
     r3.metric("本趟需補足金額", "$0.0", delta="已達標")
 
-# 組合包含完成時間的詳細描述
-struct_desc = " | ".join([f"{label_name}({o['finish_time']}完): {o['duration']}分/${o['price']}" for i, o in enumerate(orders_data) for label_name in [f"A單" if i == 0 else ("B單" if i == 1 else "C單")]])
+# 組合詳細紀錄
+struct_desc = " | ".join([f"{('A單' if idx==0 else ('B單' if idx==1 else 'C單'))}({o['finish_time']}完): 實跑{o['duration']}分/${o['price']}" for idx, o in enumerate(orders_data)])
 
 if st.button("💾 記錄此趟勞動部標準差額"):
     save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
