@@ -32,11 +32,27 @@ st.markdown("""
         font-weight: 900; 
         margin: 0;
     }
+    /* 強化 Metric 區塊文字與標題顏色，確保超清晰 */
     [data-testid="stMetric"] { 
-        background: #022c22; 
-        border: 1px solid #047857; 
+        background: #022c22 !important; 
+        border: 1px solid #10b981 !important; 
         border-radius: 12px; 
         padding: 12px 16px; 
+    }
+    [data-testid="stMetricLabel"] p {
+        color: #a7f3d0 !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stMetricValue"] div {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+    }
+    /* 提示小字顏色加亮 */
+    .stCaption p {
+        color: #6ee7b7 !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
     }
     .stButton > button { 
         background: linear-gradient(135deg, #059669 0%, #10b981 100%); 
@@ -156,12 +172,9 @@ for i in range(num_orders):
     orders_data.append({"price": final_p, "est_duration": est_duration})
     st.markdown("")
 
-# 整趟行程總共花費分鐘數輸入格
 st.markdown("---")
 total_trip_minutes = st.number_input("⏱️ 本趟行程「總共花了多少分鐘」(整趟實跑總時數)", min_value=1.0, step=1.0, key="total_duration")
 
-# 勞動部疊單核心邏輯：重疊時間分別計入，若有多單則每單以總花費時間獨立計算（或依比例/獨立計入）
-# 這裡直接將每單實際服務時間帶入總花費分鐘數來計算各單法定門檻
 calculated_orders = []
 for o in orders_data:
     calculated_orders.append({
@@ -190,7 +203,6 @@ if shortfall > 0:
 else:
     r3.metric("本趟需補足金額", "$0.0", delta="已達標")
 
-# 組合詳細紀錄
 orders_desc_parts = [f"{('A單' if idx==0 else ('B單' if idx==1 else 'C單'))}(預估{o['est_duration']}分): $ {o['price']}" for idx, o in enumerate(calculated_orders)]
 struct_desc = f"總實跑 {total_trip_minutes}分 | " + " + ".join(orders_desc_parts)
 
