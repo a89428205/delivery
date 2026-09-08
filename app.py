@@ -3,7 +3,7 @@ from PIL import Image
 import numpy as np
 import re
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 
 st.set_page_config(
@@ -107,11 +107,11 @@ elif "三單" in order_type:
 for i in range(3):
     if f"num_p_{i}" not in st.session_state:
         st.session_state[f"num_p_{i}"] = 49.0 if i == 0 else 40.0
-    if f"accept_time_{i}" not in st.session_state:
-        st.session_state[f"accept_time_{i}"] = datetime.now().strftime("%H:%M")
+    if f"est_d_{i}" not in st.session_state:
+        st.session_state[f"est_d_{i}"] = 15.0 if i == 0 else 20.0
 
-if "total_finish_time" not in st.session_state:
-    st.session_state["total_finish_time"] = datetime.now().strftime("%H:%M")
+if "total_duration" not in st.session_state:
+    st.session_state["total_duration"] = 30.0
 
 orders_data = []
 st.markdown("---")
@@ -131,8 +131,7 @@ for i in range(num_orders):
             txt = " ".join([item[1] for item in res]) if res else ""
             
             p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
-            # 嘗試從截圖抓取時間格式（例如 14:30 或 12點35分）
-            t_m = re.search(r'(\d{1,2}[:：]\d{2})', txt)
+            t_m = re.search(r'(\d+)\s*分', txt)
             
             changed = False
             if p_m:
@@ -141,49 +140,34 @@ for i in range(num_orders):
                     st.session_state[f"num_p_{i}"] = val_p
                     changed = True
             if t_m:
-                raw_time_str = t_m.group(1).replace('：', ':')
-                if st.session_state[f"accept_time_{i}"] != raw_time_str:
-                    st.session_state[f"accept_time_{i}"] = raw_time_str
+                val_d = float(t_m.group(1))
+                if st.session_state[f"est_d_{i}"] != val_d:
+                    st.session_state[f"est_d_{i}"] = val_d
                     changed = True
                     
             if changed:
-                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'num_p_{i}']}，接單時間 {st.session_state[f'accept_time_{i}']}")
+                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'num_p_{i}']}，預估 {st.session_state[f'est_d_{i}']} 分")
                 st.rerun()
 
     c1, c2 = st.columns(2)
     final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"num_p_{i}")
-    accept_time_str = c2.text_input(f"{label_name} 接單時間 (例如 12:15)", key=f"accept_time_{i}")
+    est_duration = c2.number_input(f"{label_name} 派單卡預估時間(分)", step=1.0, key=f"est_d_{i}")
     
-    orders_data.append({"price": final_p, "accept_time": accept_time_str})
+    orders_data.append({"price": final_p, "est_duration": est_duration})
     st.markdown("")
 
-# 整趟行程總送完時間輸入格
+# 整趟行程總共花費分鐘數輸入格
 st.markdown("---")
-total_finish_time_str = st.text_input("⏰ 本趟行程「總共送完」時間點 (例如 14:30)", key="total_finish_time")
+total_trip_minutes = st.number_input("⏱️ 本趟行程「總共花了多少分鐘」(整趟實跑總時數)", min_value=1.0, step=1.0, key="total_duration")
 
-# 自動計算每張單的實際花費分鐘數
+# 勞動部疊單核心邏輯：重疊時間分別計入，若有多單則每單以總花費時間獨立計算（或依比例/獨立計入）
+# 這裡直接將每單實際服務時間帶入總花費分鐘數來計算各單法定門檻
 calculated_orders = []
-base_date = datetime.now().date()
-
-try:
-    finish_dt = datetime.strptime(f"{base_date} {total_finish_time_str}", "%Y-%m-%d %H:%M")
-except:
-    finish_dt = datetime.now()
-
 for o in orders_data:
-    try:
-        accept_dt = datetime.strptime(f"{base_date} {o['accept_time']}", "%Y-%m-%d %H:%M")
-        # 若跨日或格式錯誤防呆
-        duration = (finish_dt - accept_dt).total_seconds() / 60.0
-        if duration < 0:
-            duration = 0.0 # 若完工時間小於接單時間，防呆歸零
-    except:
-        duration = 15.0 # 預設防呆分
-        
     calculated_orders.append({
         "price": o["price"],
-        "accept_time": o["accept_time"],
-        "duration": round(duration, 1)
+        "est_duration": o["est_duration"],
+        "duration": total_trip_minutes
     })
 
 total_platform_price = sum([o["price"] for o in calculated_orders])
@@ -193,10 +177,9 @@ shortfall = max(0.0, total_labor_target - total_platform_price)
 st.divider()
 st.markdown("### 📊 勞動部標準結算結果")
 
-# 顯示每單自動算出來的實跑時間
 for idx, co in enumerate(calculated_orders):
     label_name = f"A單" if idx == 0 else ("B單" if idx == 1 else "C單")
-    st.caption(f"ℹ️ {label_name}（接單 {co['accept_time']} ➔ 總完工 {total_finish_time_str}） ➔ 自動計算實跑：**{co['duration']} 分鐘**")
+    st.caption(f"ℹ️ {label_name}（派單卡預估：{co['est_duration']}分） ➔ 帶入總實跑時間：**{co['duration']} 分鐘**")
 
 r1, r2, r3 = st.columns(3)
 r1.metric("勞動部認定總門檻", f"${total_labor_target:.1f}")
@@ -208,8 +191,8 @@ else:
     r3.metric("本趟需補足金額", "$0.0", delta="已達標")
 
 # 組合詳細紀錄
-orders_desc_parts = [f"{('A單' if idx==0 else ('B單' if idx==1 else 'C單'))}(接{o['accept_time']}): 實跑{o['duration']}分/${o['price']}" for idx, o in enumerate(calculated_orders)]
-struct_desc = f"總完工 {total_finish_time_str} | " + " + ".join(orders_desc_parts)
+orders_desc_parts = [f"{('A單' if idx==0 else ('B單' if idx==1 else 'C單'))}(預估{o['est_duration']}分): $ {o['price']}" for idx, o in enumerate(calculated_orders)]
+struct_desc = f"總實跑 {total_trip_minutes}分 | " + " + ".join(orders_desc_parts)
 
 if st.button("💾 記錄此趟勞動部標準差額"):
     save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
