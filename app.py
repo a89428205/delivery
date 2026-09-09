@@ -2,12 +2,25 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 import os
+import re
 
 st.set_page_config(
     page_title="🛵 勞動部認定標準 疊單補足金額追蹤器", 
     page_icon="⚖️", 
     layout="centered"
 )
+
+# 嘗試載入 OCR 與 OpenCV 相關套件
+VISION_AVAILABLE = False
+try:
+    from rapidocr_onnxruntime import RapidOCR
+    import numpy as np
+    from PIL import Image
+    import cv2
+    ocr_engine = RapidOCR()
+    VISION_AVAILABLE = True
+except Exception:
+    VISION_AVAILABLE = False
 
 st.markdown("""
 <style>
@@ -64,7 +77,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 依各單起訖時間精算服務時數，完美對齊官方綠色獨立計算邏輯 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 紅點光學定位辨識 + 綠色獨立加總公式 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -76,7 +89,7 @@ def load_records():
     else:
         return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-def save_record(struct_str, total_price, total_target, shortfall, note="起訖時間精算計算"):
+def save_record(struct_str, total_price, total_target, shortfall, note="紅點定位精算記錄"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -94,7 +107,7 @@ def save_record(struct_str, total_price, total_target, shortfall, note="起訖�
 BASE_PRICE = 45.0       
 PER_MINUTE_RATE = 4.1   
 
-st.subheader("📦 本趟行程訂單與起訖時間設定")
+st.subheader("📦 本趟行程訂單設定")
 order_type = st.radio("選擇本趟訂單類型", ["單主單（無疊單）", "雙單疊單（A單 + B單）", "三單疊單（A + B + C單）"], horizontal=True)
 
 num_orders = 1
@@ -108,22 +121,92 @@ st.markdown("---")
 
 for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
-    st.markdown(f"##### 🛵 {label_name} 數據與時間")
+    st.markdown(f"##### 🛵 {label_name} 數據 (支援紅點光學解析)")
     
+    p_key = f"val_p_{i}"
+    start_key = f"val_start_{i}"
+    end_key = f"val_end_{i}"
+    
+    uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖 (透過紅點與文字分析)", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
+    
+    if uploaded_file and VISION_AVAILABLE:
+        try:
+            image = Image.open(uploaded_file)
+            img_np = np.array(image)
+            
+            # 1. 轉為 HSV 色彩空間進行紅點定位
+            hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
+            # 定義紅色的兩個區段 (HSV 空間中紅色跨越 0 度兩端)
+            lower_red1 = np.array([0, 120, 70])
+            upper_red1 = np.array([10, 255, 255])
+            lower_red2 = np.array([170, 120, 70])
+            upper_red2 = np.array([180, 255, 255])
+            
+            mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+            mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+            red_mask = mask1 | mask2
+            
+            # 尋找紅點座標
+            contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            red_points = []
+            for cnt in contours:
+                if cv2.contourArea(cnt) > 3:  # 過濾微小雜訊
+                    M = cv2.moments(cnt)
+                    if M["m00"] > 0:
+                        cx = int(M["m10"] / M["m00"])
+                        cy = int(M["m01"] / M["m00"])
+                        red_points.append((cx, cy))
+            
+            if red_points:
+                st.caption(f"🎯 成功鎖定畫面上的紅點標記數：{len(red_points)} 個")
+
+            # 2. 進行全面 OCR 文字與位置掃描
+            result, _ = ocr_engine(img_np)
+            if result:
+                all_texts = []
+                for box, text, score in result:
+                    all_texts.append(text)
+                full_str = " ".join(all_texts)
+                
+                # 智慧時間解析
+                found_times = re.findall(r'(\d{1,2})[:：](\d{2})', full_str)
+                if len(found_times) >= 2:
+                    st.session_state[start_key] = time(int(found_times[0][0]), int(found_times[0][1]))
+                    st.session_state[end_key] = time(int(found_times[1][0]), int(found_times[1][1]))
+                    st.success(f"✅ 紅點區域時間定位成功：{found_times[0][0]}:{found_times[0][1]} ~ {found_times[1][0]}:{found_times[1][1]}")
+
+                # 智慧金額解析
+                found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
+                if found_prices:
+                    st.session_state[p_key] = float(found_prices[-1])
+                    st.success(f"✅ 金額定位成功：${found_prices[-1]}")
+                    
+        except Exception as e:
+            st.warning(f"⚠️ 光學解析中發生例外，已自動維持手動欄位")
+
+    if p_key not in st.session_state:
+        st.session_state[p_key] = 49.0 if i==0 else (40.0 if i==1 else 35.0)
+    if start_key not in st.session_state:
+        st.session_state[start_key] = time(12, 0)
+    if end_key not in st.session_state:
+        st.session_state[end_key] = time(12, 30)
+
     c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", value=49.0 if i==0 else (40.0 if i==1 else 35.0), step=1.0, key=f"num_p_{i}")
+    final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_key], step=1.0, key=f"num_p_{i}")
+    st.session_state[p_key] = final_p
     
-    # 讓使用者輸入接單與送完時間
     t_col1, t_col2 = st.columns(2)
-    start_t = t_col1.time_input(f"{label_name} 接單時間", value=time(12, 0), key=f"start_t_{i}")
-    end_t = t_col2.time_input(f"{label_name} 送達時間", value=time(12, 30), key=f"end_t_{i}")
+    start_t = t_col1.time_input(f"{label_name} 接單時間", value=st.session_state[start_key], key=f"start_t_{i}")
+    end_t = t_col2.time_input(f"{label_name} 送達時間", value=st.session_state[end_key], key=f"end_t_{i}")
     
-    # 計算該單實際耗時（分鐘）
+    st.session_state[start_key] = start_t
+    st.session_state[end_key] = end_t
+    
     start_dt = datetime.combine(datetime.today(), start_t)
     end_dt = datetime.combine(datetime.today(), end_t)
     diff_mins = (end_dt - start_dt).total_seconds() / 60.0
     if diff_mins < 0:
-        diff_mins += 24 * 60  # 跨日保護
+        diff_mins += 24 * 60
         
     st.caption(f"⏱️ {label_name} 獨立計算實跑時間：**{diff_mins:.1f} 分鐘**")
     
@@ -136,7 +219,8 @@ for i in range(num_orders):
     })
     st.markdown("---")
 
-# 計算各單法定門檻與總額
+total_trip_minutes = st.number_input("⏱️ 整趟行程實際總花費分鐘數", value=47.0, min_value=1.0, step=1.0, key="total_duration")
+
 calculated_orders = []
 for o in orders_data:
     single_target = max(BASE_PRICE, o["duration"] * PER_MINUTE_RATE)
@@ -152,7 +236,7 @@ total_platform_price = sum([o["price"] for o in calculated_orders])
 total_labor_target = sum([o["target"] for o in calculated_orders])
 shortfall = max(0.0, total_labor_target - total_platform_price)
 
-st.markdown("### 📊 勞動部標準結算結果（依起訖時間精算）")
+st.markdown("### 📊 勞動部標準結算結果（綠色獨立加總公式）")
 
 for co in calculated_orders:
     st.caption(f"ℹ️ {co['label']}（{co['time_str']}，共 {co['duration']:.0f}分） ➔ 獨立門檻：**${co['target']:.1f} 元**")
@@ -167,7 +251,7 @@ else:
     r3.metric("本趟需補足金額", "$0.0", delta="已達標")
 
 orders_desc_parts = [f"{o['label']}({o['time_str']}, {o['duration']:.0f}分): ${o['price']}" for o in calculated_orders]
-struct_desc = " | ".join(orders_desc_parts)
+struct_desc = f"總花費 {total_trip_minutes}分 | " + " | ".join(orders_desc_parts)
 
 if st.button("💾 記錄此趟勞動部標準差額"):
     save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
