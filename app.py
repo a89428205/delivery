@@ -129,14 +129,12 @@ for i in range(num_orders):
     
     uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
-    # 建立辨識觸發按鈕
     if uploaded_file and VISION_AVAILABLE:
         if st.button(f"🔍 執行 {label_name} 紅點與文字辨識", key=f"btn_ocr_{i}"):
             try:
                 image = Image.open(uploaded_file).convert("RGB")
                 img_np = np.array(image)
                 
-                # 1. 轉為 HSV 色彩空間進行紅點定位
                 hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
                 lower_red1 = np.array([0, 120, 70])
                 upper_red1 = np.array([10, 255, 255])
@@ -160,20 +158,17 @@ for i in range(num_orders):
                 if red_points:
                     st.success(f"🎯 成功鎖定畫面上的紅點標記數：{len(red_points)} 個")
 
-                # 2. 進行全面 OCR 文字掃描
                 result, _ = ocr_engine(img_np)
                 if result:
                     all_texts = [line[1] for line in result]
                     full_str = " ".join(all_texts)
                     
-                    # 智慧時間解析
                     found_times = re.findall(r'(\d{1,2})[:：](\d{2})', full_str)
-                    if len(found_times] >= 2:
+                    if len(found_times) >= 2:
                         st.session_state[start_key] = time(int(found_times[0][0]), int(found_times[0][1]))
                         st.session_state[end_key] = time(int(found_times[1][0]), int(found_times[1][1]))
                         st.success(f"✅ 時間定位成功：{found_times[0][0]}:{found_times[0][1]} ~ {found_times[1][0]}:{found_times[1][1]}")
 
-                    # 智慧金額解析
                     found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
                     if found_prices:
                         st.session_state[p_key] = float(found_prices[-1])
