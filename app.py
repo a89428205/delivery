@@ -75,7 +75,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 時間與金額精準連動修復版 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 輸入格強制同步修復版 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -121,16 +121,17 @@ for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    num_p_key = f"num_p_{i}"
-    start_t_key = f"start_t_{i}"
-    end_t_key = f"end_t_{i}"
+    # 建立專屬的 state 儲存 key
+    p_state = f"p_val_{i}"
+    start_state = f"start_val_{i}"
+    end_state = f"end_val_{i}"
     
-    if num_p_key not in st.session_state:
-        st.session_state[num_p_key] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
-    if start_t_key not in st.session_state:
-        st.session_state[start_t_key] = time(18, 52)
-    if end_t_key not in st.session_state:
-        st.session_state[end_t_key] = time(19, 16)
+    if p_state not in st.session_state:
+        st.session_state[p_state] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
+    if start_state not in st.session_state:
+        st.session_state[start_state] = time(18, 52)
+    if end_state not in st.session_state:
+        st.session_state[end_state] = time(19, 16)
 
     uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
@@ -142,44 +143,55 @@ for i in range(num_orders):
             result, _ = ocr_engine(img_np)
             if result:
                 full_str = " ".join([r[1] for r in result])
-                updated = False
+                has_changed = False
                 
-                # 1. 抓取左上角系統時間
+                # 1. 抓取左上角時間
                 time_match = re.search(r'(\d{1,2})[:：](\d{2})', full_str)
                 base_time = datetime.now()
                 if time_match:
                     hr, mn = int(time_match.group(1)), int(time_match.group(2))
                     base_time = base_time.replace(hour=hr, minute=mn, second=0)
-                    st.session_state[start_t_key] = base_time.time()
-                    updated = True
+                    new_start = base_time.time()
+                    if st.session_state[start_state] != new_start:
+                        st.session_state[start_state] = new_start
+                        has_changed = True
                 
                 # 2. 抓取金額
                 found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
                 if found_prices:
-                    st.session_state[num_p_key] = float(found_prices[0])
-                    st.success(f"💰 成功辨識 {label_name} 金額：${found_prices[0]}")
-                    updated = True
+                    new_p = float(found_prices[0])
+                    if st.session_state[p_state] != new_p:
+                        st.session_state[p_state] = new_p
+                        st.success(f"💰 成功辨識 {label_name} 金額：${new_p}")
+                        has_changed = True
                 
                 # 3. 抓取預估分鐘數
                 found_mins = re.findall(r'(\d+)\s*分鐘', full_str)
                 if found_mins:
                     total_mins_val = float(found_mins[0])
                     end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
-                    st.session_state[end_t_key] = end_dt_calc.time()
-                    st.success(f"⏱️ 成功辨識 {label_name} 預估時間：共 {total_mins_val} 分鐘")
-                    updated = True
+                    new_end = end_dt_calc.time()
+                    if st.session_state[end_state] != new_end:
+                        st.session_state[end_state] = new_end
+                        st.success(f"⏱️ 成功辨識 {label_name} 預估時間：共 {total_mins_val} 分鐘")
+                        has_changed = True
                 
-                if updated:
+                if has_changed:
                     st.rerun()
         except Exception as e:
             st.warning(f"⚠️ 解析發生錯誤：{e}")
 
+    # 直接將 session_state 數值餵給輸入框，確保畫面同步
     c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=num_p_key)
+    final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_state], step=1.0, key=f"num_p_{i}")
+    st.session_state[p_state] = final_p
     
     t_col1, t_col2 = st.columns(2)
-    start_t = t_col1.time_input(f"{label_name} 接單時間", key=start_t_key)
-    end_t = t_col2.time_input(f"{label_name} 送達時間", key=end_t_key)
+    start_t = t_col1.time_input(f"{label_name} 接單時間", value=st.session_state[start_state], key=f"start_t_{i}")
+    end_t = t_col2.time_input(f"{label_name} 送達時間", value=st.session_state[end_state], key=f"end_t_{i}")
+    
+    st.session_state[start_state] = start_t
+    st.session_state[end_state] = end_t
     
     start_dt = datetime.combine(datetime.today(), start_t)
     end_dt = datetime.combine(datetime.today(), end_t)
