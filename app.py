@@ -75,7 +75,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🛠️ 內建 OCR 即時除錯診斷版 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 強制同步更新完美版 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -87,7 +87,7 @@ def load_records():
     else:
         return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-def save_record(struct_str, total_price, total_target, shortfall, note="診斷記錄"):
+def save_record(struct_str, total_price, total_target, shortfall, note="同步精算記錄"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -115,7 +115,7 @@ elif "三單" in order_type:
     num_orders = 3
 
 orders_data = []
-st.markdown("---")
+st.markdown("---
 
 for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
@@ -134,57 +134,46 @@ for i in range(num_orders):
 
     uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
-    if uploaded_file:
-        if not VISION_AVAILABLE:
-            st.error(f"❌ OCR 模組未成功載入！錯誤原因：{locals().get('VISION_INIT_ERROR', '不明錯誤')}")
-        else:
+    if uploaded_file and VISION_AVAILABLE:
+        # 檢查是否為新上傳的檔案，避免重複觸發 rerun
+        file_sig_key = f"sig_{i}"
+        file_sig = f"{uploaded_file.name}-{uploaded_file.size}"
+        
+        if st.session_state.get(file_sig_key) != file_sig:
             try:
                 image = Image.open(uploaded_file).convert("RGB")
                 img_np = np.array(image)
                 
-                with st.spinner(f"🔍 正在解析 {label_name} 截圖中..."):
-                    result, _ = ocr_engine(img_np)
-                
+                result, _ = ocr_engine(img_np)
                 if result:
-                    all_texts = [r[1] for r in result]
-                    full_str = " ".join(all_texts)
+                    full_str = " ".join([r[1] for r in result])
+                    updated_any = False
                     
-                    # 顯示診斷框：讓你看見 OCR 到底抓到了什麼字
-                    with st.expander(f"🔍 {label_name} OCR 原始辨識文字診斷（點此展開）", expanded=True):
-                        st.write(f"**所有抓到的文字：** `{full_str}`")
-                    
-                    # 1. 抓取左上角時間
                     time_match = re.search(r'(\d{1,2})[:：](\d{2})', full_str)
                     base_time = datetime.now()
                     if time_match:
                         hr, mn = int(time_match.group(1)), int(time_match.group(2))
                         base_time = base_time.replace(hour=hr, minute=mn, second=0)
                         st.session_state[start_state] = base_time.time()
-                        st.success(f"✅ 成功對應時間：{hr:02d}:{mn:02d}")
-                    else:
-                        st.warning(f"⚠️ 找不到時間格式（例如 xx:xx），故維持預設時間。")
+                        updated_any = True
                     
-                    # 2. 抓取金額
                     found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
                     if found_prices:
                         st.session_state[p_state] = float(found_prices[0])
-                        st.success(f"✅ 成功抓取金額：${found_prices[0]}")
-                    else:
-                        st.warning(f"⚠️ 找不到金額格式（例如 $94），嘗試尋找所有數字：{re.findall(r'\d+', full_str)}")
+                        updated_any = True
                     
-                    # 3. 抓取預估分鐘數
                     found_mins = re.findall(r'(\d+)\s*分鐘', full_str)
                     if found_mins:
                         total_mins_val = float(found_mins[0])
                         end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
                         st.session_state[end_state] = end_dt_calc.time()
-                        st.success(f"✅ 成功抓取預估時間：共 {total_mins_val} 分鐘")
-                    else:
-                        st.warning(f"⚠️ 找不到「幾分鐘」的關鍵字。")
-                else:
-                    st.error(f"❌ OCR 掃描結果為空，圖片可能太模糊或格式不支援。")
+                        updated_any = True
+                    
+                    if updated_any:
+                        st.session_state[file_sig_key] = file_sig
+                        st.rerun()
             except Exception as e:
-                st.error(f"❌ 解析過程發生例外錯誤：{e}")
+                st.error(f"❌ 解析錯誤：{e}")
 
     c1, c2 = st.columns(2)
     final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_state], step=1.0, key=f"num_p_{i}")
