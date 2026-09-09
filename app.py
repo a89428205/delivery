@@ -10,13 +10,12 @@ st.set_page_config(
     layout="centered"
 )
 
-# 嘗試載入 OCR 與 OpenCV 相關套件
+# 嘗試載入 OCR 與 OpenCV 套件
 VISION_AVAILABLE = False
 try:
     from rapidocr_onnxruntime import RapidOCR
     import numpy as np
     from PIL import Image
-    import cv2
     ocr_engine = RapidOCR()
     VISION_AVAILABLE = True
 except Exception:
@@ -77,7 +76,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 紅點光學定位辨識 + 綠色獨立加總公式 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 左上時間 + 左下派單卡 雙重紅點定位解析 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -89,7 +88,7 @@ def load_records():
     else:
         return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-def save_record(struct_str, total_price, total_target, shortfall, note="紅點定位精算記錄"):
+def save_record(struct_str, total_price, total_target, shortfall, note="雙重座標精算記錄"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -121,7 +120,7 @@ st.markdown("---")
 
 for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
-    st.markdown(f"##### 🛵 {label_name} 數據 (支援紅點光學解析)")
+    st.markdown(f"##### 🛵 {label_name} 數據 (左上時間 + 左下派單卡解析)")
     
     p_key = f"val_p_{i}"
     start_key = f"val_start_{i}"
@@ -130,60 +129,59 @@ for i in range(num_orders):
     uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
     if uploaded_file and VISION_AVAILABLE:
-        if st.button(f"🔍 執行 {label_name} 紅點與文字辨識", key=f"btn_ocr_{i}"):
+        if st.button(f"🔍 自動解析 {label_name} 畫面資訊", key=f"btn_ocr_{i}"):
             try:
                 image = Image.open(uploaded_file).convert("RGB")
                 img_np = np.array(image)
+                h, w, _ = img_np.shape
                 
-                hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
-                lower_red1 = np.array([0, 120, 70])
-                upper_red1 = np.array([10, 255, 255])
-                lower_red2 = np.array([170, 120, 70])
-                upper_red2 = np.array([180, 255, 255])
+                # 1. 抓取左上角系統時間區域 (y: 0~10%, x: 0~35%)
+                top_left_crop = img_np[0:int(h*0.1), 0:int(w*0.35)]
+                top_result, _ = ocr_engine(top_left_crop)
                 
-                mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-                mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-                red_mask = mask1 | mask2
+                base_time = datetime.now()
+                if top_result:
+                    top_str = " ".join([r[1] for r in top_result])
+                    time_match = re.search(r'(\d{1,2})[:：](\d{2})', top_str)
+                    if time_match:
+                        hr, mn = int(time_match.group(1)), int(time_match.group(2))
+                        base_time = base_time.replace(hour=hr, minute=mn, second=0)
+                        st.success(f"✅ 成功抓取左上系統時間：{hr:02d}:{mn:02d}")
                 
-                contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                red_points = []
-                for cnt in contours:
-                    if cv2.contourArea(cnt) > 3:
-                        M = cv2.moments(cnt)
-                        if M["m00"] > 0:
-                            cx = int(M["m10"] / M["m00"])
-                            cy = int(M["m01"] / M["m00"])
-                            red_points.append((cx, cy))
+                st.session_state[start_key] = base_time.time()
                 
-                if red_points:
-                    st.success(f"🎯 成功鎖定畫面上的紅點標記數：{len(red_points)} 個")
-
-                result, _ = ocr_engine(img_np)
-                if result:
-                    all_texts = [line[1] for line in result]
-                    full_str = " ".join(all_texts)
+                # 2. 抓取左下角派單卡區域 (y: 50%~95%, x: 0%~100%)
+                card_crop = img_np[int(h*0.5):int(h*0.95), int(w*0.02):int(w*0.98)]
+                card_result, _ = ocr_engine(card_crop)
+                
+                if card_result:
+                    card_texts = [r[1] for r in card_result]
+                    card_full_str = " ".join(card_texts)
                     
-                    found_times = re.findall(r'(\d{1,2})[:：](\d{2})', full_str)
-                    if len(found_times) >= 2:
-                        st.session_state[start_key] = time(int(found_times[0][0]), int(found_times[0][1]))
-                        st.session_state[end_key] = time(int(found_times[1][0]), int(found_times[1][1]))
-                        st.success(f"✅ 時間定位成功：{found_times[0][0]}:{found_times[0][1]} ~ {found_times[1][0]}:{found_times[1][1]}")
-
-                    found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
+                    # 抓取金額
+                    found_prices = re.findall(r'[$＄]\s*(\d{2,3})', card_full_str)
                     if found_prices:
-                        st.session_state[p_key] = float(found_prices[-1])
-                        st.success(f"✅ 金額定位成功：${found_prices[-1]}")
+                        st.session_state[p_key] = float(found_prices[0])
+                        st.success(f"✅ 成功抓取派單金額：${found_prices[0]}")
+                    
+                    # 抓取預估分鐘數
+                    found_mins = re.findall(r'(\d+)\s*分鐘', card_full_str)
+                    if found_mins:
+                        total_mins_val = float(found_mins[0])
+                        end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
+                        st.session_state[end_key] = end_dt_calc.time()
+                        st.success(f"✅ 成功計算預估送達時間：{end_dt_calc.strftime('%H:%M')}（共 {total_mins_val} 分鐘）")
                         
                 st.rerun()
             except Exception as e:
-                st.warning(f"⚠️ 光學解析發生錯誤：{e}")
+                st.warning(f"⚠️ 解析發生錯誤：{e}")
 
     if p_key not in st.session_state:
-        st.session_state[p_key] = 49.0 if i==0 else (40.0 if i==1 else 35.0)
+        st.session_state[p_key] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
     if start_key not in st.session_state:
-        st.session_state[start_key] = time(12, 0)
+        st.session_state[start_key] = time(18, 52)
     if end_key not in st.session_state:
-        st.session_state[end_key] = time(12, 30)
+        st.session_state[end_key] = time(19, 16)
 
     c1, c2 = st.columns(2)
     final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_key], step=1.0, key=f"num_p_{i}")
@@ -213,7 +211,7 @@ for i in range(num_orders):
     })
     st.markdown("---")
 
-total_trip_minutes = st.number_input("⏱️ 整趟行程實際總花費分鐘數", value=47.0, min_value=1.0, step=1.0, key="total_duration")
+total_trip_minutes = st.number_input("⏱️ 整趟行程實際總花費分鐘數", value=24.0, min_value=1.0, step=1.0, key="total_duration")
 
 calculated_orders = []
 for o in orders_data:
