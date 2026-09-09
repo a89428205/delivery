@@ -75,7 +75,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 語法修正完美版 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 鍵值直接同步最終版 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -87,7 +87,7 @@ def load_records():
     else:
         return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-def save_record(struct_str, total_price, total_target, shortfall, note="同步精算記錄"):
+def save_record(struct_str, total_price, total_target, shortfall, note="精算記錄"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -121,16 +121,17 @@ for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    p_state = f"p_val_{i}"
-    start_state = f"start_val_{i}"
-    end_state = f"end_val_{i}"
+    # 統一使用 widget key 作為唯一狀態控制
+    p_key = f"num_p_{i}"
+    start_key = f"start_t_{i}"
+    end_key = f"end_t_{i}"
     
-    if p_state not in st.session_state:
-        st.session_state[p_state] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
-    if start_state not in st.session_state:
-        st.session_state[start_state] = time(18, 52)
-    if end_state not in st.session_state:
-        st.session_state[end_state] = time(19, 16)
+    if p_key not in st.session_state:
+        st.session_state[p_key] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
+    if start_key not in st.session_state:
+        st.session_state[start_key] = time(18, 52)
+    if end_key not in st.session_state:
+        st.session_state[end_key] = time(19, 16)
 
     uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
@@ -148,24 +149,27 @@ for i in range(num_orders):
                     full_str = " ".join([r[1] for r in result])
                     updated_any = False
                     
+                    # 1. 抓取時間
                     time_match = re.search(r'(\d{1,2})[:：](\d{2})', full_str)
                     base_time = datetime.now()
                     if time_match:
                         hr, mn = int(time_match.group(1)), int(time_match.group(2))
                         base_time = base_time.replace(hour=hr, minute=mn, second=0)
-                        st.session_state[start_state] = base_time.time()
+                        st.session_state[start_key] = base_time.time()
                         updated_any = True
                     
+                    # 2. 抓取金額直接更新 widget key
                     found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
                     if found_prices:
-                        st.session_state[p_state] = float(found_prices[0])
+                        st.session_state[p_key] = float(found_prices[0])
                         updated_any = True
                     
+                    # 3. 抓取預估分鐘數計算送達時間
                     found_mins = re.findall(r'(\d+)\s*分鐘', full_str)
                     if found_mins:
                         total_mins_val = float(found_mins[0])
                         end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
-                        st.session_state[end_state] = end_dt_calc.time()
+                        st.session_state[end_key] = end_dt_calc.time()
                         updated_any = True
                     
                     if updated_any:
@@ -174,16 +178,13 @@ for i in range(num_orders):
             except Exception as e:
                 st.error(f"❌ 解析錯誤：{e}")
 
+    # 渲染輸入元件，直接綁定統一的 key
     c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_state], step=1.0, key=f"num_p_{i}")
-    st.session_state[p_state] = final_p
+    final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=p_key)
     
     t_col1, t_col2 = st.columns(2)
-    start_t = t_col1.time_input(f"{label_name} 接單時間", value=st.session_state[start_state], key=f"start_t_{i}")
-    end_t = t_col2.time_input(f"{label_name} 送達時間", value=st.session_state[end_state], key=f"end_t_{i}")
-    
-    st.session_state[start_state] = start_t
-    st.session_state[end_state] = end_t
+    start_t = t_col1.time_input(f"{label_name} 接單時間", key=start_key)
+    end_t = t_col2.time_input(f"{label_name} 送達時間", key=end_key)
     
     start_dt = datetime.combine(datetime.today(), start_t)
     end_dt = datetime.combine(datetime.today(), end_t)
