@@ -75,7 +75,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 強制同步更新完美版 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 語法修正完美版 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -115,7 +115,7 @@ elif "三單" in order_type:
     num_orders = 3
 
 orders_data = []
-st.markdown("---
+st.markdown("---")
 
 for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
@@ -135,7 +135,6 @@ for i in range(num_orders):
     uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
     if uploaded_file and VISION_AVAILABLE:
-        # 檢查是否為新上傳的檔案，避免重複觸發 rerun
         file_sig_key = f"sig_{i}"
         file_sig = f"{uploaded_file.name}-{uploaded_file.size}"
         
