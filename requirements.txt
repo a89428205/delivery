@@ -3,3 +3,4 @@ pandas
 rapidocr-onnxruntime
 opencv-python-headless
 Pillow
+onnxruntime
