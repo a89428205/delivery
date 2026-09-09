@@ -127,62 +127,61 @@ for i in range(num_orders):
     start_key = f"val_start_{i}"
     end_key = f"val_end_{i}"
     
-    uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖 (透過紅點與文字分析)", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
+    uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
     
+    # 建立辨識觸發按鈕
     if uploaded_file and VISION_AVAILABLE:
-        try:
-            image = Image.open(uploaded_file)
-            img_np = np.array(image)
-            
-            # 1. 轉為 HSV 色彩空間進行紅點定位
-            hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
-            # 定義紅色的兩個區段 (HSV 空間中紅色跨越 0 度兩端)
-            lower_red1 = np.array([0, 120, 70])
-            upper_red1 = np.array([10, 255, 255])
-            lower_red2 = np.array([170, 120, 70])
-            upper_red2 = np.array([180, 255, 255])
-            
-            mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-            mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-            red_mask = mask1 | mask2
-            
-            # 尋找紅點座標
-            contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            red_points = []
-            for cnt in contours:
-                if cv2.contourArea(cnt) > 3:  # 過濾微小雜訊
-                    M = cv2.moments(cnt)
-                    if M["m00"] > 0:
-                        cx = int(M["m10"] / M["m00"])
-                        cy = int(M["m01"] / M["m00"])
-                        red_points.append((cx, cy))
-            
-            if red_points:
-                st.caption(f"🎯 成功鎖定畫面上的紅點標記數：{len(red_points)} 個")
-
-            # 2. 進行全面 OCR 文字與位置掃描
-            result, _ = ocr_engine(img_np)
-            if result:
-                all_texts = []
-                for box, text, score in result:
-                    all_texts.append(text)
-                full_str = " ".join(all_texts)
+        if st.button(f"🔍 執行 {label_name} 紅點與文字辨識", key=f"btn_ocr_{i}"):
+            try:
+                image = Image.open(uploaded_file).convert("RGB")
+                img_np = np.array(image)
                 
-                # 智慧時間解析
-                found_times = re.findall(r'(\d{1,2})[:：](\d{2})', full_str)
-                if len(found_times) >= 2:
-                    st.session_state[start_key] = time(int(found_times[0][0]), int(found_times[0][1]))
-                    st.session_state[end_key] = time(int(found_times[1][0]), int(found_times[1][1]))
-                    st.success(f"✅ 紅點區域時間定位成功：{found_times[0][0]}:{found_times[0][1]} ~ {found_times[1][0]}:{found_times[1][1]}")
+                # 1. 轉為 HSV 色彩空間進行紅點定位
+                hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
+                lower_red1 = np.array([0, 120, 70])
+                upper_red1 = np.array([10, 255, 255])
+                lower_red2 = np.array([170, 120, 70])
+                upper_red2 = np.array([180, 255, 255])
+                
+                mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+                mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+                red_mask = mask1 | mask2
+                
+                contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                red_points = []
+                for cnt in contours:
+                    if cv2.contourArea(cnt) > 3:
+                        M = cv2.moments(cnt)
+                        if M["m00"] > 0:
+                            cx = int(M["m10"] / M["m00"])
+                            cy = int(M["m01"] / M["m00"])
+                            red_points.append((cx, cy))
+                
+                if red_points:
+                    st.success(f"🎯 成功鎖定畫面上的紅點標記數：{len(red_points)} 個")
 
-                # 智慧金額解析
-                found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
-                if found_prices:
-                    st.session_state[p_key] = float(found_prices[-1])
-                    st.success(f"✅ 金額定位成功：${found_prices[-1]}")
+                # 2. 進行全面 OCR 文字掃描
+                result, _ = ocr_engine(img_np)
+                if result:
+                    all_texts = [line[1] for line in result]
+                    full_str = " ".join(all_texts)
                     
-        except Exception as e:
-            st.warning(f"⚠️ 光學解析中發生例外，已自動維持手動欄位")
+                    # 智慧時間解析
+                    found_times = re.findall(r'(\d{1,2})[:：](\d{2})', full_str)
+                    if len(found_times] >= 2:
+                        st.session_state[start_key] = time(int(found_times[0][0]), int(found_times[0][1]))
+                        st.session_state[end_key] = time(int(found_times[1][0]), int(found_times[1][1]))
+                        st.success(f"✅ 時間定位成功：{found_times[0][0]}:{found_times[0][1]} ~ {found_times[1][0]}:{found_times[1][1]}")
+
+                    # 智慧金額解析
+                    found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
+                    if found_prices:
+                        st.session_state[p_key] = float(found_prices[-1])
+                        st.success(f"✅ 金額定位成功：${found_prices[-1]}")
+                        
+                st.rerun()
+            except Exception as e:
+                st.warning(f"⚠️ 光學解析發生錯誤：{e}")
 
     if p_key not in st.session_state:
         st.session_state[p_key] = 49.0 if i==0 else (40.0 if i==1 else 35.0)
