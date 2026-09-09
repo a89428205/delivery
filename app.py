@@ -75,7 +75,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 輸入格強制同步修復版 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 不閃爍防呆穩定解析版 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -121,7 +121,6 @@ for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    # 建立專屬的 state 儲存 key
     p_state = f"p_val_{i}"
     start_state = f"start_val_{i}"
     end_state = f"end_val_{i}"
@@ -143,7 +142,6 @@ for i in range(num_orders):
             result, _ = ocr_engine(img_np)
             if result:
                 full_str = " ".join([r[1] for r in result])
-                has_changed = False
                 
                 # 1. 抓取左上角時間
                 time_match = re.search(r'(\d{1,2})[:：](\d{2})', full_str)
@@ -151,37 +149,23 @@ for i in range(num_orders):
                 if time_match:
                     hr, mn = int(time_match.group(1)), int(time_match.group(2))
                     base_time = base_time.replace(hour=hr, minute=mn, second=0)
-                    new_start = base_time.time()
-                    if st.session_state[start_state] != new_start:
-                        st.session_state[start_state] = new_start
-                        has_changed = True
+                    st.session_state[start_state] = base_time.time()
                 
-                # 2. 抓取金額
+                # 2. 抓取金額（支援 $94 格式）
                 found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
                 if found_prices:
-                    new_p = float(found_prices[0])
-                    if st.session_state[p_state] != new_p:
-                        st.session_state[p_state] = new_p
-                        st.success(f"💰 成功辨識 {label_name} 金額：${new_p}")
-                        has_changed = True
+                    st.session_state[p_state] = float(found_prices[0])
                 
                 # 3. 抓取預估分鐘數
                 found_mins = re.findall(r'(\d+)\s*分鐘', full_str)
                 if found_mins:
                     total_mins_val = float(found_mins[0])
                     end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
-                    new_end = end_dt_calc.time()
-                    if st.session_state[end_state] != new_end:
-                        st.session_state[end_state] = new_end
-                        st.success(f"⏱️ 成功辨識 {label_name} 預估時間：共 {total_mins_val} 分鐘")
-                        has_changed = True
-                
-                if has_changed:
-                    st.rerun()
+                    st.session_state[end_state] = end_dt_calc.time()
         except Exception as e:
-            st.warning(f"⚠️ 解析發生錯誤：{e}")
+            pass
 
-    # 直接將 session_state 數值餵給輸入框，確保畫面同步
+    # 渲染輸入元件，直接吃 session_state 裡的值（絕不使用 st.rerun() 造成閃爍）
     c1, c2 = st.columns(2)
     final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_state], step=1.0, key=f"num_p_{i}")
     st.session_state[p_state] = final_p
