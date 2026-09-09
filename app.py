@@ -1,8 +1,10 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime, time
-import os
+from PIL import Image
+import numpy as np
 import re
+import pandas as pd
+from datetime import datetime
+import os
 
 st.set_page_config(
     page_title="🛵 勞動部認定標準 疊單補足金額追蹤器", 
@@ -10,20 +12,10 @@ st.set_page_config(
     layout="centered"
 )
 
-# 嘗試載入 OCR 與 OpenCV 套件
-VISION_AVAILABLE = False
-try:
-    from rapidocr_onnxruntime import RapidOCR
-    import numpy as np
-    from PIL import Image
-    ocr_engine = RapidOCR()
-    VISION_AVAILABLE = True
-except Exception as e:
-    VISION_AVAILABLE = False
-
 st.markdown("""
 <style>
     .stApp { background-color: #030712; color: #f3f4f6; }
+    
     .cyber-header {
         background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #030712 100%);
         border: 1px solid #10b981; 
@@ -41,26 +33,14 @@ st.markdown("""
         font-weight: 900; 
         margin: 0;
     }
+    
     [data-testid="stMetric"] { 
-        background: #022c22 !important; 
-        border: 1px solid #10b981 !important; 
+        background: #022c22; 
+        border: 1px solid #047857; 
         border-radius: 12px; 
         padding: 12px 16px; 
     }
-    [data-testid="stMetricLabel"] p {
-        color: #a7f3d0 !important;
-        font-size: 14px !important;
-        font-weight: 600 !important;
-    }
-    [data-testid="stMetricValue"] div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-    }
-    .stCaption p {
-        color: #6ee7b7 !important;
-        font-size: 13px !important;
-        font-weight: 500 !important;
-    }
+    
     .stButton > button { 
         background: linear-gradient(135deg, #059669 0%, #10b981 100%); 
         color: white; 
@@ -76,7 +56,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 全域智慧 OCR 解析版 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 核心原則：重疊時間分別計入各筆訂單，依每筆實際服務時間獨立計算 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -88,7 +68,7 @@ def load_records():
     else:
         return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-def save_record(struct_str, total_price, total_target, shortfall, note="智慧解析精算記錄"):
+def save_record(struct_str, total_price, total_target, shortfall, note="疊單計算"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -103,8 +83,15 @@ def save_record(struct_str, total_price, total_target, shortfall, note="智慧�
     df.to_csv(LOG_FILE, index=False)
     return df
 
-BASE_PRICE = 45.0       
-PER_MINUTE_RATE = 4.1   
+@st.cache_resource
+def load_ocr():
+    from rapidocr_onnxruntime import RapidOCR
+    return RapidOCR()
+
+ocr = load_ocr()
+
+BASE_PRICE = 45.0       # 單筆底價保障
+PER_MINUTE_RATE = 4.1   # 每分鐘大約 4.1 元 (245 ÷ 60)
 
 st.subheader("📦 本趟行程訂單設定")
 order_type = st.radio("選擇本趟訂單類型", ["單主單（無疊單）", "雙單疊單（A單 + B單）", "三單疊單（A + B + C單）"], horizontal=True)
@@ -119,116 +106,60 @@ orders_data = []
 st.markdown("---")
 
 for i in range(num_orders):
-    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
+    label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C単" if i==2 else f"第{i+1}單")
+    if i == 2: label_name = "C單"
+    
     st.markdown(f"##### 🛵 {label_name} 數據")
     
-    p_key = f"val_p_{i}"
-    start_key = f"val_start_{i}"
-    end_key = f"val_end_{i}"
+    col_up, col_man = st.tabs([f"📷 上傳 {label_name} 截圖", f"✍️ 手動輸入 {label_name}"])
     
-    if p_key not in st.session_state:
-        st.session_state[p_key] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
-    if start_key not in st.session_state:
-        st.session_state[start_key] = time(18, 52)
-    if end_key not in st.session_state:
-        st.session_state[end_key] = time(19, 16)
-
-    uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
+    # 初始化 session_state 預設值
+    if f"p_{i}" not in st.session_state:
+        st.session_state[f"p_{i}"] = 227.0 if i==0 else 40.0
+    if f"d_{i}" not in st.session_state:
+        st.session_state[f"d_{i}"] = 29.0 if i==0 else 30.0
     
-    if uploaded_file:
-        if not VISION_AVAILABLE:
-            st.error("❌ 系統偵測：雲端環境未成功載入 OCR 影像模組 (`rapidocr_onnxruntime`)，請檢查 requirements.txt 設定。")
-        else:
-            try:
-                image = Image.open(uploaded_file).convert("RGB")
-                img_np = np.array(image)
-                h, w, _ = img_np.shape
+    with col_up:
+        up_file = st.file_uploader(f"上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"up_{i}")
+        if up_file is not None:
+            img = Image.open(up_file)
+            st.image(img, caption=f"已讀取 {label_name}", use_container_width=True)
+            res, _ = ocr(np.array(img))
+            txt = " ".join([item[1] for item in res]) if res else ""
+            
+            p_m = re.search(r'\$\s*(\d+(\.\d+)?)', txt)
+            t_m = re.search(r'(\d+)\s*分', txt)
+            
+            updated = False
+            if p_m:
+                st.session_state[f"p_{i}"] = float(p_m.group(1))
+                updated = True
+            if t_m:
+                st.session_state[f"d_{i}"] = float(t_m.group(1))
+                updated = True
                 
-                # 直接對整張圖片進行全面 OCR 掃描，確保所有文字都不漏接
-                result, _ = ocr_engine(img_np)
-                
-                if result:
-                    all_texts = [r[1] for r in result]
-                    full_str = " ".join(all_texts)
-                    
-                    # 1. 抓取左上角系統時間（如 18:52）
-                    time_match = re.search(r'(\d{1,2})[:：](\d{2})', full_str)
-                    base_time = datetime.now()
-                    if time_match:
-                        hr, mn = int(time_match.group(1)), int(time_match.group(2))
-                        base_time = base_time.replace(hour=hr, minute=mn, second=0)
-                        st.session_state[start_key] = base_time.time()
-                    
-                    # 2. 抓取金額（尋找 $ 符號後面的數字）
-                    found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
-                    if found_prices:
-                        st.session_state[p_key] = float(found_prices[0])
-                        st.success(f"💰 成功辨識 {label_name} 金額：${found_prices[0]}")
-                    
-                    # 3. 抓取預估分鐘數（如 24 分鐘）
-                    found_mins = re.findall(r'(\d+)\s*分鐘', full_str)
-                    if found_mins:
-                        total_mins_val = float(found_mins[0])
-                        end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
-                        st.session_state[end_key] = end_dt_calc.time()
-                        st.success(f"⏱️ 成功辨識 {label_name} 預估時間：共 {total_mins_val} 分鐘")
-                else:
-                    st.warning(f"⚠️ 圖片中未偵測到任何文字，請確認截圖是否清晰。")
-                    
-            except Exception as e:
-                st.error(f"⚠️ 解析發生例外錯誤: {e}")
-
-    c1, c2 = st.columns(2)
-    final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_key], step=1.0, key=f"num_p_{i}")
-    st.session_state[p_key] = final_p
-    
-    t_col1, t_col2 = st.columns(2)
-    start_t = t_col1.time_input(f"{label_name} 接單時間", value=st.session_state[start_key], key=f"start_t_{i}")
-    end_t = t_col2.time_input(f"{label_name} 送達時間", value=st.session_state[end_key], key=f"end_t_{i}")
-    
-    st.session_state[start_key] = start_t
-    st.session_state[end_key] = end_t
-    
-    start_dt = datetime.combine(datetime.today(), start_t)
-    end_dt = datetime.combine(datetime.today(), end_t)
-    diff_mins = (end_dt - start_dt).total_seconds() / 60.0
-    if diff_mins < 0:
-        diff_mins += 24 * 60
+            if updated:
+                st.success(f"⚡ 自動辨識成功：金額 ${st.session_state[f'p_{i}']}，時間 {st.session_state[f'd_{i}']} 分")
+                st.rerun()
+            
+    with col_man:
+        pass
         
-    st.caption(f"⏱️ {label_name} 獨立計算實跑時間：**{diff_mins:.1f} 分鐘**")
+    c1, c2 = st.columns(2)
+    final_p = c1.number_input(f"{label_name} 金額 ($)", step=1.0, key=f"p_{i}")
+    final_d = c2.number_input(f"{label_name} 實際服務時間（分鐘）", step=1.0, key=f"d_{i}")
     
-    orders_data.append({
-        "label": label_name,
-        "price": final_p,
-        "duration": max(1.0, diff_mins),
-        "start": start_t.strftime("%H:%M"),
-        "end": end_t.strftime("%H:%M")
-    })
-    st.markdown("---")
+    orders_data.append({"price": final_p, "duration": final_d})
+    st.markdown("")
 
-total_trip_minutes = st.number_input("⏱️ 整趟行程實際總花費分鐘數", value=24.0, min_value=1.0, step=1.0, key="total_duration")
-
-calculated_orders = []
-for o in orders_data:
-    single_target = max(BASE_PRICE, o["duration"] * PER_MINUTE_RATE)
-    calculated_orders.append({
-        "label": o["label"],
-        "price": o["price"],
-        "duration": o["duration"],
-        "target": single_target,
-        "time_str": f"{o['start']}~{o['end']}"
-    })
-
-total_platform_price = sum([o["price"] for o in calculated_orders])
-total_labor_target = sum([o["target"] for o in calculated_orders])
+total_platform_price = sum([o["price"] for o in orders_data])
+total_labor_target = sum([max(BASE_PRICE, o["duration"] * PER_MINUTE_RATE) for o in orders_data])
 shortfall = max(0.0, total_labor_target - total_platform_price)
 
-st.markdown("### 📊 勞動部標準結算結果（綠色獨立加總公式）")
-
-for co in calculated_orders:
-    st.caption(f"ℹ️ {co['label']}（{co['time_str']}，共 {co['duration']:.0f}分） ➔ 獨立門檻：**${co['target']:.1f} 元**")
-
+st.divider()
+st.markdown("### 📊 勞動部標準結算結果")
 r1, r2, r3 = st.columns(3)
+
 r1.metric("勞動部認定總門檻", f"${total_labor_target:.1f}")
 r2.metric("平台實際總給予", f"${total_platform_price:.1f}")
 
@@ -237,8 +168,7 @@ if shortfall > 0:
 else:
     r3.metric("本趟需補足金額", "$0.0", delta="已達標")
 
-orders_desc_parts = [f"{o['label']}({o['time_str']}, {o['duration']:.0f}分): ${o['price']}" for o in calculated_orders]
-struct_desc = f"總花費 {total_trip_minutes}分 | " + " | ".join(orders_desc_parts)
+struct_desc = " + ".join([f"{o['duration']}分(${o['price']})" for o in orders_data])
 
 if st.button("💾 記錄此趟勞動部標準差額"):
     save_record(order_type, round(total_platform_price, 1), round(total_labor_target, 1), round(shortfall, 1), struct_desc)
@@ -256,4 +186,4 @@ if not df.empty:
             os.remove(LOG_FILE)
             st.rerun()
 else:
-    st.info("目前尚無紀錄，請於上方輸入資料開始計算！")
+    st.info("目前尚無紀錄，請於上方輸入或上傳疊單截圖開始計算！")
