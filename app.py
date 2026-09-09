@@ -18,7 +18,7 @@ try:
     from PIL import Image
     ocr_engine = RapidOCR()
     VISION_AVAILABLE = True
-except Exception:
+except Exception as e:
     VISION_AVAILABLE = False
 
 st.markdown("""
@@ -76,7 +76,7 @@ st.markdown("""
 st.markdown("""
 <div class="cyber-header">
     <h1>⚖️ 勞動部認定標準：疊單補足金額追蹤器</h1>
-    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 左上時間 + 左下派單卡 雙重紅點定位解析 ]</p>
+    <p style="color:#a7f3d0; font-size:12px; margin-top:6px; font-family:monospace;">[ 🎯 全域智慧 OCR 解析版 ]</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -88,7 +88,7 @@ def load_records():
     else:
         return pd.DataFrame(columns=["日期時間", "訂單結構", "平台總給予", "法定總門檻", "需補足總額", "備註"])
 
-def save_record(struct_str, total_price, total_target, shortfall, note="雙重座標精算記錄"):
+def save_record(struct_str, total_price, total_target, shortfall, note="智慧解析精算記錄"):
     df = load_records()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     new_row = pd.DataFrame([{
@@ -120,68 +120,63 @@ st.markdown("---")
 
 for i in range(num_orders):
     label_name = f"A單" if i == 0 else ("B單" if i == 1 else "C單")
-    st.markdown(f"##### 🛵 {label_name} 數據 (左上時間 + 左下派單卡解析)")
+    st.markdown(f"##### 🛵 {label_name} 數據")
     
     p_key = f"val_p_{i}"
     start_key = f"val_start_{i}"
     end_key = f"val_end_{i}"
     
-    uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
-    
-    if uploaded_file and VISION_AVAILABLE:
-        if st.button(f"🔍 自動解析 {label_name} 畫面資訊", key=f"btn_ocr_{i}"):
-            try:
-                image = Image.open(uploaded_file).convert("RGB")
-                img_np = np.array(image)
-                h, w, _ = img_np.shape
-                
-                # 1. 抓取左上角系統時間區域 (y: 0~10%, x: 0~35%)
-                top_left_crop = img_np[0:int(h*0.1), 0:int(w*0.35)]
-                top_result, _ = ocr_engine(top_left_crop)
-                
-                base_time = datetime.now()
-                if top_result:
-                    top_str = " ".join([r[1] for r in top_result])
-                    time_match = re.search(r'(\d{1,2})[:：](\d{2})', top_str)
-                    if time_match:
-                        hr, mn = int(time_match.group(1)), int(time_match.group(2))
-                        base_time = base_time.replace(hour=hr, minute=mn, second=0)
-                        st.success(f"✅ 成功抓取左上系統時間：{hr:02d}:{mn:02d}")
-                
-                st.session_state[start_key] = base_time.time()
-                
-                # 2. 抓取左下角派單卡區域 (y: 50%~95%, x: 0%~100%)
-                card_crop = img_np[int(h*0.5):int(h*0.95), int(w*0.02):int(w*0.98)]
-                card_result, _ = ocr_engine(card_crop)
-                
-                if card_result:
-                    card_texts = [r[1] for r in card_result]
-                    card_full_str = " ".join(card_texts)
-                    
-                    # 抓取金額
-                    found_prices = re.findall(r'[$＄]\s*(\d{2,3})', card_full_str)
-                    if found_prices:
-                        st.session_state[p_key] = float(found_prices[0])
-                        st.success(f"✅ 成功抓取派單金額：${found_prices[0]}")
-                    
-                    # 抓取預估分鐘數
-                    found_mins = re.findall(r'(\d+)\s*分鐘', card_full_str)
-                    if found_mins:
-                        total_mins_val = float(found_mins[0])
-                        end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
-                        st.session_state[end_key] = end_dt_calc.time()
-                        st.success(f"✅ 成功計算預估送達時間：{end_dt_calc.strftime('%H:%M')}（共 {total_mins_val} 分鐘）")
-                        
-                st.rerun()
-            except Exception as e:
-                st.warning(f"⚠️ 解析發生錯誤：{e}")
-
     if p_key not in st.session_state:
         st.session_state[p_key] = 94.0 if i==0 else (50.0 if i==1 else 40.0)
     if start_key not in st.session_state:
         st.session_state[start_key] = time(18, 52)
     if end_key not in st.session_state:
         st.session_state[end_key] = time(19, 16)
+
+    uploaded_file = st.file_uploader(f"📸 上傳 {label_name} 截圖", type=["png", "jpg", "jpeg"], key=f"upload_{i}")
+    
+    if uploaded_file:
+        if not VISION_AVAILABLE:
+            st.error("❌ 系統偵測：雲端環境未成功載入 OCR 影像模組 (`rapidocr_onnxruntime`)，請檢查 requirements.txt 設定。")
+        else:
+            try:
+                image = Image.open(uploaded_file).convert("RGB")
+                img_np = np.array(image)
+                h, w, _ = img_np.shape
+                
+                # 直接對整張圖片進行全面 OCR 掃描，確保所有文字都不漏接
+                result, _ = ocr_engine(img_np)
+                
+                if result:
+                    all_texts = [r[1] for r in result]
+                    full_str = " ".join(all_texts)
+                    
+                    # 1. 抓取左上角系統時間（如 18:52）
+                    time_match = re.search(r'(\d{1,2})[:：](\d{2})', full_str)
+                    base_time = datetime.now()
+                    if time_match:
+                        hr, mn = int(time_match.group(1)), int(time_match.group(2))
+                        base_time = base_time.replace(hour=hr, minute=mn, second=0)
+                        st.session_state[start_key] = base_time.time()
+                    
+                    # 2. 抓取金額（尋找 $ 符號後面的數字）
+                    found_prices = re.findall(r'[$＄]\s*(\d{2,3})', full_str)
+                    if found_prices:
+                        st.session_state[p_key] = float(found_prices[0])
+                        st.success(f"💰 成功辨識 {label_name} 金額：${found_prices[0]}")
+                    
+                    # 3. 抓取預估分鐘數（如 24 分鐘）
+                    found_mins = re.findall(r'(\d+)\s*分鐘', full_str)
+                    if found_mins:
+                        total_mins_val = float(found_mins[0])
+                        end_dt_calc = base_time + pd.Timedelta(minutes=total_mins_val)
+                        st.session_state[end_key] = end_dt_calc.time()
+                        st.success(f"⏱️ 成功辨識 {label_name} 預估時間：共 {total_mins_val} 分鐘")
+                else:
+                    st.warning(f"⚠️ 圖片中未偵測到任何文字，請確認截圖是否清晰。")
+                    
+            except Exception as e:
+                st.error(f"⚠️ 解析發生例外錯誤: {e}")
 
     c1, c2 = st.columns(2)
     final_p = c1.number_input(f"{label_name} 金額 ($)", value=st.session_state[p_key], step=1.0, key=f"num_p_{i}")
